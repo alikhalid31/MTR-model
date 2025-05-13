@@ -16,6 +16,12 @@ import torch.nn as nn
 import torch.optim.lr_scheduler as lr_sched
 from tensorboardX import SummaryWriter
 
+# Ray imports
+import ray
+from ray.train import Trainer, TrainingCallback
+from ray.train.torch import TorchTrainer, TorchConfig
+from ray.air import session
+
 from mtr.datasets import build_dataloader
 from mtr.config import cfg, cfg_from_list, cfg_from_yaml_file, log_config_to_file
 from mtr.utils import common_utils
@@ -34,7 +40,7 @@ def parse_config():
     parser.add_argument('--extra_tag', type=str, default='default', help='extra tag for this experiment')
     parser.add_argument('--ckpt', type=str, default=None, help='checkpoint to start from')
     parser.add_argument('--pretrained_model', type=str, default=None, help='pretrained_model')
-    parser.add_argument('--launcher', choices=['none', 'pytorch', 'slurm'], default='none')
+    parser.add_argument('--launcher', choices=['none', 'pytorch', 'slurm', 'ray'], default='none')
     parser.add_argument('--tcp_port', type=int, default=18888, help='tcp port for distrbuted training')
     parser.add_argument('--without_sync_bn', action='store_true', default=False, help='whether to use sync bn')
     parser.add_argument('--fix_random_seed', action='store_true', default=False, help='')
@@ -53,6 +59,12 @@ def parse_config():
     parser.add_argument('--ckpt_save_time_interval', type=int, default=300, help='in terms of seconds')
 
     parser.add_argument('--add_worker_init_fn', action='store_true', default=False, help='')
+    
+    # Ray specific arguments
+    parser.add_argument('--ray_num_workers', type=int, default=2, help='number of Ray workers')
+    parser.add_argument('--ray_cpus_per_worker', type=int, default=4, help='CPUs per Ray worker')
+    parser.add_argument('--ray_gpus_per_worker', type=int, default=1, help='GPUs per Ray worker')
+    
     args = parser.parse_args()
 
     cfg_from_yaml_file(args.cfg_file, cfg)
@@ -107,35 +119,38 @@ def build_scheduler(optimizer, dataloader, opt_cfg, total_epochs, total_iters_ea
     return scheduler
 
 
-def main():
-    args, cfg = parse_config()
-    if args.launcher == 'none':
-        dist_train = False
-        total_gpus = 1
-        args.without_sync_bn = True
-    else:
-        if args.local_rank is None:
-            args.local_rank = int(os.environ.get('LOCAL_RANK', '0'))
-        total_gpus, cfg.LOCAL_RANK = getattr(common_utils, 'init_dist_%s' % args.launcher)(
-            args.tcp_port, args.local_rank, backend='nccl'
-        )
+def train_func(config):
+    """Function that is executed on each Ray worker."""
+    
+    # Get distributed information from Ray
+    if session.get_world_size() > 1:
         dist_train = True
-
-    if args.batch_size is None:
-        args.batch_size = cfg.OPTIMIZATION.BATCH_SIZE_PER_GPU
+        cfg.LOCAL_RANK = session.get_world_rank()
+        torch.cuda.set_device(session.get_local_rank())
+        torch.distributed.init_process_group(
+            backend="nccl", 
+            rank=session.get_world_rank(),
+            world_size=session.get_world_size()
+        )
+        total_gpus = session.get_world_size()
     else:
-        assert args.batch_size % total_gpus == 0, 'Batch size should match the number of gpus'
-        args.batch_size = args.batch_size // total_gpus
-
-    args.epochs = cfg.OPTIMIZATION.NUM_EPOCHS if args.epochs is None else args.epochs
-
+        dist_train = False
+        cfg.LOCAL_RANK = 0
+        total_gpus = 1
+    
+    args = config["args"]
+    cfg = config["cfg"]
+    
     if args.fix_random_seed:
         common_utils.set_random_seed(666)
 
     output_dir = cfg.ROOT_DIR / 'output' / cfg.EXP_GROUP_PATH / cfg.TAG / args.extra_tag
     ckpt_dir = output_dir / 'ckpt'
-    output_dir.mkdir(parents=True, exist_ok=True)
-    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Only create directories on rank 0
+    if cfg.LOCAL_RANK == 0:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     log_file = output_dir / ('log_train_%s.txt' % datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
     logger = common_utils.create_logger(log_file, rank=cfg.LOCAL_RANK)
@@ -166,7 +181,7 @@ def main():
     )
 
     model = model_utils.MotionTransformer(config=cfg.MODEL)
-    if not args.without_sync_bn:
+    if not args.without_sync_bn and dist_train:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
     model.cuda()
 
@@ -181,7 +196,7 @@ def main():
 
     if args.ckpt is not None:
         it, start_epoch = model.load_params_with_optimizer(args.ckpt, to_cpu=dist_train, optimizer=optimizer,
-                                                           logger=logger)
+                                                         logger=logger)
         last_epoch = start_epoch + 1
     else:
         ckpt_list = glob.glob(str(ckpt_dir / '*.pth'))
@@ -210,10 +225,14 @@ def main():
     model.train()  # before wrap to DistributedDataParallel to support to fix some parameters
 
     if dist_train:
-        model = nn.parallel.DistributedDataParallel(model, device_ids=[cfg.LOCAL_RANK % torch.cuda.device_count()], find_unused_parameters=True)
-    logger.info(model)
-    num_total_params = sum([x.numel() for x in model.parameters()])
-    logger.info(f'Total number of parameters: {num_total_params}')
+        model = nn.parallel.DistributedDataParallel(
+            model, device_ids=[session.get_local_rank()], find_unused_parameters=True
+        )
+    
+    if cfg.LOCAL_RANK == 0:
+        logger.info(model)
+        num_total_params = sum([x.numel() for x in model.parameters()])
+        logger.info(f'Total number of parameters: {num_total_params}')
 
     test_set, test_loader, sampler = build_dataloader(
         dataset_cfg=cfg.DATA_CONFIG,
@@ -222,11 +241,19 @@ def main():
     )
 
     eval_output_dir = output_dir / 'eval' / 'eval_with_train'
-    eval_output_dir.mkdir(parents=True, exist_ok=True)
+    
+    if cfg.LOCAL_RANK == 0:
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
 
     # -----------------------start training---------------------------
     logger.info('**********************Start training %s/%s(%s)**********************'
                 % (cfg.EXP_GROUP_PATH, cfg.TAG, args.extra_tag))
+                
+    # Report metrics to Ray Train
+    def ray_report_metrics(metrics, rank):
+        if rank == 0:
+            session.report(metrics)
+    
     train_model(
         model,
         optimizer,
@@ -247,18 +274,19 @@ def main():
         eval_output_dir=eval_output_dir,
         test_loader=test_loader if not args.not_eval_with_train else None,
         cfg=cfg, dist_train=dist_train, logger_iter_interval=args.logger_iter_interval,
-        ckpt_save_time_interval=args.ckpt_save_time_interval
+        ckpt_save_time_interval=args.ckpt_save_time_interval,
+        report_metrics_fn=ray_report_metrics
     )
 
     logger.info('**********************End training %s/%s(%s)**********************\n\n\n'
                 % (cfg.EXP_GROUP_PATH, cfg.TAG, args.extra_tag))
 
-
     logger.info('**********************Start evaluation %s/%s(%s)**********************' %
                 (cfg.EXP_GROUP_PATH, cfg.TAG, args.extra_tag))
 
     eval_output_dir = output_dir / 'eval' / 'eval_with_train'
-    eval_output_dir.mkdir(parents=True, exist_ok=True)
+    if cfg.LOCAL_RANK == 0:
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
     args.start_epoch = max(args.epochs - 0, 0)  # Only evaluate the last 10 epochs
     cfg.DATA_CONFIG.SAMPLE_INTERVAL.val = 1
 
@@ -277,6 +305,62 @@ def main():
 
     logger.info('**********************End evaluation %s/%s(%s)**********************' %
                 (cfg.EXP_GROUP_PATH, cfg.TAG, args.extra_tag))
+
+
+def main():
+    args, cfg = parse_config()
+    
+    if args.launcher == 'ray':
+        # Initialize Ray
+        ray.init(address=os.environ.get("RAY_ADDRESS", None), ignore_reinit_error=True)
+        
+        # Configure Ray Trainer
+        trainer = TorchTrainer(
+            train_func,
+            train_loop_config={
+                "args": args,
+                "cfg": cfg
+            },
+            torch_config=TorchConfig(
+                backend="nccl"
+            ),
+            scaling_config={
+                "num_workers": args.ray_num_workers,
+                "resources_per_worker": {
+                    "CPU": args.ray_cpus_per_worker, 
+                    "GPU": args.ray_gpus_per_worker
+                }
+            }
+        )
+        
+        # Start training
+        result = trainer.fit()
+        print(f"Training result: {result}")
+    else:
+        # Original distributed training
+        if args.launcher == 'none':
+            dist_train = False
+            total_gpus = 1
+            args.without_sync_bn = True
+        else:
+            if args.local_rank is None:
+                args.local_rank = int(os.environ.get('LOCAL_RANK', '0'))
+            total_gpus, cfg.LOCAL_RANK = getattr(common_utils, 'init_dist_%s' % args.launcher)(
+                args.tcp_port, args.local_rank, backend='nccl'
+            )
+            dist_train = True
+
+        if args.batch_size is None:
+            args.batch_size = cfg.OPTIMIZATION.BATCH_SIZE_PER_GPU
+        else:
+            assert args.batch_size % total_gpus == 0, 'Batch size should match the number of gpus'
+            args.batch_size = args.batch_size // total_gpus
+
+        args.epochs = cfg.OPTIMIZATION.NUM_EPOCHS if args.epochs is None else args.epochs
+        
+        # Call the training function directly
+        train_config = {"args": args, "cfg": cfg}
+        train_func(train_config)
 
 
 if __name__ == '__main__':
