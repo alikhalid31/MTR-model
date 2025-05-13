@@ -18,7 +18,7 @@ from tensorboardX import SummaryWriter
 
 # Ray imports
 import ray
-from ray.train import Trainer, TrainingCallback
+from ray.train import Trainer, TrainingCallback, ScalingConfig, RunConfig, CheckpointConfig
 from ray.train.torch import TorchTrainer, TorchConfig
 from ray.air import session
 
@@ -313,6 +313,10 @@ def main():
     if args.launcher == 'ray':
         # Initialize Ray
         ray.init(address=os.environ.get("RAY_ADDRESS", None), ignore_reinit_error=True)
+
+        scaling_config = ScalingConfig(num_workesrs=args.ray_num_workers, use_gpu=True
+                                        resources_per_worker={"CPU": args.ray_cpus_per_worker, "GPU": args.ray_gpus_per_worker})
+
         
         # Configure Ray Trainer
         trainer = TorchTrainer(
