@@ -173,7 +173,8 @@ def process_waymo_data_with_scenario_proto(data_file, output_path=None):
     for cnt, data in enumerate(dataset):
         info = {}
         scenario = scenario_pb2.Scenario()
-        scenario.ParseFromString(bytearray(data.numpy()))
+        # scenario.ParseFromString(bytearray(data.numpy()))
+        scenario.ParseFromString(bytes(data.numpy()))
 
         info['scenario_id'] = scenario.scenario_id
         info['timestamps_seconds'] = list(scenario.timestamps_seconds)  # list of int of shape (91)
@@ -181,14 +182,39 @@ def process_waymo_data_with_scenario_proto(data_file, output_path=None):
         info['sdc_track_index'] = scenario.sdc_track_index  # int
         info['objects_of_interest'] = list(scenario.objects_of_interest)  # list, could be empty list
 
-        info['tracks_to_predict'] = {
-            'track_index': [cur_pred.track_index for cur_pred in scenario.tracks_to_predict],
-            'difficulty': [cur_pred.difficulty for cur_pred in scenario.tracks_to_predict]
-        }  # for training: suggestion of objects to train on, for val/test: need to be predicted
-
         track_infos = decode_tracks_from_proto(scenario.tracks)
-        info['tracks_to_predict']['object_type'] = [track_infos['object_type'][cur_idx] for cur_idx in info['tracks_to_predict']['track_index']]
 
+        # filtering tracks to predict based on speed
+        track_index= [cur_pred.track_index for cur_pred in scenario.tracks_to_predict]
+        track_index_filter =[]
+        for index in track_index:
+            single_track = track_infos['trajs'][index] 
+            # 10 = timestamp, 7 = velocity_x, 8 = velocity_y
+            speed = np.sqrt(single_track[10][7]**2 + single_track[10][8]**2)
+            if speed >= 21 and speed <= 1000:
+                track_index_filter.append(index)
+                # print(speed)
+
+
+
+        # modified this code to filter out the tracks wrt to speed
+        info['tracks_to_predict'] = {
+            'track_index': [cur_pred.track_index for cur_pred in scenario.tracks_to_predict if cur_pred.track_index in track_index_filter],
+            'difficulty': [cur_pred.difficulty for cur_pred in scenario.tracks_to_predict if cur_pred.track_index in track_index_filter]
+        }
+
+        # info['tracks_to_predict'] = {
+        #     'track_index': [cur_pred.track_index for cur_pred in scenario.tracks_to_predict],
+        #     'difficulty': [cur_pred.difficulty for cur_pred in scenario.tracks_to_predict]
+        # }  # for training: suggestion of objects to train on, for val/test: need to be predicted
+
+        # if conditoin to filter scenerio based on number of agents (tracks) in the scene 
+        #if not (len(scenario.tracks) >=100 and len(scenario.tracks) < 1000):
+            # print(len(scenario.tracks))
+            #continue    
+        
+        info['tracks_to_predict']['object_type'] = [track_infos['object_type'][cur_idx] for cur_idx in info['tracks_to_predict']['track_index']]
+        
         # decode map related data
         map_infos = decode_map_features_from_proto(scenario.map_features)
         dynamic_map_infos = decode_dynamic_map_states_from_proto(scenario.dynamic_map_states)
@@ -228,27 +254,37 @@ def get_infos_from_protos(data_path, output_path=None, num_workers=8):
     return all_infos
 
 
-def create_infos_from_protos(raw_data_path, output_path, num_workers=16):
-    train_infos = get_infos_from_protos(
-        data_path=os.path.join(raw_data_path, 'training'),
-        output_path=os.path.join(output_path, 'processed_scenarios_training'),
-        num_workers=num_workers
-    )
-    train_filename = os.path.join(output_path, 'processed_scenarios_training_infos.pkl')
-    with open(train_filename, 'wb') as f:
-        pickle.dump(train_infos, f)
-    print('----------------Waymo info train file is saved to %s----------------' % train_filename)
+def create_infos_from_protos(raw_data_path, output_path, num_workers=1):
+    # train_infos = get_infos_from_protos(
+    #     data_path=os.path.join(raw_data_path, 'training'),
+    #     output_path=os.path.join(output_path, 'processed_scenarios_training'),
+    #     num_workers=num_workers
+    # )
+    # train_filename = os.path.join(output_path, 'processed_scenarios_training_infos.pkl')
+    # with open(train_filename, 'wb') as f:
+    #     pickle.dump(train_infos, f)
+    # print('----------------Waymo info train file is saved to %s----------------' % train_filename)
 
     val_infos = get_infos_from_protos(
         data_path=os.path.join(raw_data_path, 'validation'),
-        output_path=os.path.join(output_path, 'processed_scenarios_validation'),
+        output_path=os.path.join(output_path, 'processed_scenarios_validation_speed_btw_21_inf'),
         num_workers=num_workers
     )
-    val_filename = os.path.join(output_path, 'processed_scenarios_val_infos.pkl')
+    val_filename = os.path.join(output_path, 'processed_scenarios_val_speed_btw_21_inf_infos.pkl')
     with open(val_filename, 'wb') as f:
         pickle.dump(val_infos, f)
     print('----------------Waymo info val file is saved to %s----------------' % val_filename)
     
+    # debub_infos = get_infos_from_protos(
+    #     data_path=os.path.join(raw_data_path, 'debuging'),
+    #     output_path=os.path.join(output_path, 'processed_scenarios_debuging_lt_50'),
+    #     num_workers=num_workers
+    # )
+    # debug_filename = os.path.join(output_path, 'processed_scenarios_debuging_lt_50_infos.pkl')
+    # with open(debug_filename, 'wb') as f:
+    #     pickle.dump(debub_infos, f)
+    # print('----------------Waymo info debug file is saved to %s----------------' % debug_filename)
+
 
 if __name__ == '__main__':
     create_infos_from_protos(
