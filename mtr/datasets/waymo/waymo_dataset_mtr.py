@@ -379,6 +379,73 @@ class WaymoDataset(DatasetTemplate):
         # assert center_dist.max() < 10
         return ret_polylines, ret_polylines_mask
 
+
+
+    def create_map_data(self, map_infos):
+        """
+        MTR++: Prepare all polylines by centering and rotating them independently.
+
+        Args:
+            map_infos (dict):
+                all_polylines (num_points, 7): [x, y, z, dir_x, dir_y, dir_z, global_type]
+        
+        Returns:
+            map_polylines (num_polylines, num_points_each_polyline, 9): [x, y, z, dir_x, dir_y, dir_z, global_type, pre_x, pre_y]
+            map_polylines_mask (num_polylines, num_points_each_polyline)
+            polyline_centers (num_polylines, 3)
+            polyline_headings (num_polylines,)
+        """
+        # Step 1: Load polylines from numpy
+        polylines_np = map_infos['all_polylines'].copy()
+
+        # Step 2: Break into batched polylines
+        batch_polylines, batch_polylines_mask = self.generate_batch_polylines_from_map(
+            polylines=polylines_np,
+            point_sampled_interval=self.dataset_cfg.get('POINT_SAMPLED_INTERVAL', 1),
+            vector_break_dist_thresh=self.dataset_cfg.get('VECTOR_BREAK_DIST_THRESH', 1.0),
+            num_points_each_polyline=self.dataset_cfg.get('NUM_POINTS_EACH_POLYLINE', 20),
+        )  # (num_polylines, num_points, 7), (num_polylines, num_points)
+
+        # Step 3: Compute polyline center (mean of valid points)
+        mask = batch_polylines_mask[..., None].float()
+        polyline_centers = (batch_polylines[:, :, 0:3] * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1.0)
+
+        # Step 4: Compute heading of each polyline from first and last valid point
+        last_valid_idx = batch_polylines_mask.sum(dim=1).long() - 1  # (num_polylines,)
+        gather_idx = last_valid_idx[:, None, None].expand(-1, 1, 2)  # (num_polylines, 1, 2)
+        last_valid_points = batch_polylines.gather(1, gather_idx).squeeze(1)[:, 0:2]  # (num_polylines, 2)
+        first_points = batch_polylines[:, 0, 0:2]  # (num_polylines, 2)
+        deltas = last_valid_points - first_points
+        polyline_headings = torch.atan2(deltas[:, 1], deltas[:, 0])  # (num_polylines,)
+
+        # Step 5: Center and rotate each polyline
+        centered_polys = batch_polylines.clone()
+        centered_polys[:, :, 0:3] -= polyline_centers[:, None, :]
+
+        # Rotate x, y components (positions and directions)
+        centered_polys[:, :, 0:2] = common_utils.rotate_points_along_z(
+            centered_polys[:, :, 0:2], -polyline_headings
+        )
+        centered_polys[:, :, 3:5] = common_utils.rotate_points_along_z(
+            centered_polys[:, :, 3:5], -polyline_headings
+        )
+
+        # Step 6: Add previous point for each (pre_x, pre_y)
+        prev_xy = torch.roll(centered_polys[:, :, 0:2], shifts=1, dims=1)
+        prev_xy[:, 0, :] = prev_xy[:, 1, :]
+        centered_polys = torch.cat((centered_polys, prev_xy), dim=-1)  # Now (N, T, 9)
+
+        # Mask invalid points
+        centered_polys[batch_polylines_mask == 0] = 0
+
+        # Convert to numpy for downstream use
+        return (
+            centered_polys.numpy(),              # map_polylines
+            batch_polylines_mask.numpy(),        # map_polylines_mask
+            polyline_centers.numpy(),            # polyline_centers
+            polyline_headings.numpy(),           # polyline_headings
+        )
+
     def create_map_data_for_center_objects(self, center_objects, map_infos, center_offset):
         """
         Args:

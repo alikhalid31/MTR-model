@@ -52,6 +52,7 @@ def rotate_points_along_z(points, angle):
 
 
 def merge_batch_by_padding_2nd_dim(tensor_list, return_pad_mask=False):
+    
     assert len(tensor_list[0].shape) in [3, 4]
     only_3d_tensor = False
     if len(tensor_list[0].shape) == 3:

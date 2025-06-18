@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import DataLoader
 from mtr.utils import common_utils
 
-from .waymo.waymo_dataset import WaymoDataset
+from .waymo.waymo_dataset_mtrPP import WaymoDataset
 
 
 __all__ = {

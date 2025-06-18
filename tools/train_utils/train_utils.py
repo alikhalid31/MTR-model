@@ -44,6 +44,7 @@ def train_one_epoch(model, optimizer, train_loader, accumulated_iter, optim_cfg,
         except:
             cur_lr = optimizer.param_groups[0]['lr']
 
+        exit
         model.train()
         optimizer.zero_grad()
         if optimizer_2 is not None:

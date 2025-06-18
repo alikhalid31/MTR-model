@@ -4,7 +4,7 @@
 # All Rights Reserved
 
 
-from .mtr_encoder import MTREncoder
+from .mtrPP_encoder import MTREncoder
 
 __all__ = {
     'MTREncoder': MTREncoder,
