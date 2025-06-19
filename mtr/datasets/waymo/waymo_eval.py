@@ -33,7 +33,7 @@ object_type_to_id = {
 
 
 def _default_metrics_config(eval_second, num_modes_for_eval=6):
-    assert eval_second in [3, 5, 8]
+    assert eval_second in [1, 3, 4, 5, 8]
     config = motion_metrics_pb2.MotionMetricsConfig()
     config_text = """
     track_steps_per_second: 10
@@ -43,22 +43,53 @@ def _default_metrics_config(eval_second, num_modes_for_eval=6):
     speed_upper_bound: 11.0
     speed_scale_lower: 0.5
     speed_scale_upper: 1.0
-    step_configurations {
-    measurement_step: 5
-    lateral_miss_threshold: 1.0
-    longitudinal_miss_threshold: 2.0
-    }
     """
+    # step_configurations {
+    # measurement_step: 5
+    # lateral_miss_threshold: 1.0
+    # longitudinal_miss_threshold: 2.0
+    # }
     config_text += f"""
     max_predictions: {num_modes_for_eval}
     """
-    if eval_second == 3:
+    # putting the measurement_step equals to the last time step gives segmentation fault
+    # this is only use for miss rate calculation
+    if eval_second == 1:
+        config_text += """
+        track_future_samples: 10
+        step_configurations {
+        measurement_step: 1
+        lateral_miss_threshold: 1.0
+        longitudinal_miss_threshold: 2.0
+        }
+        """
+
+    elif eval_second == 3:
         config_text += """
         track_future_samples: 30
+        step_configurations {
+        measurement_step: 5
+        lateral_miss_threshold: 1.0
+        longitudinal_miss_threshold: 2.0
+        }
+        """
+    elif eval_second == 4:
+        config_text += """
+        track_future_samples: 40
+        step_configurations {
+        measurement_step: 5
+        lateral_miss_threshold: 1.0
+        longitudinal_miss_threshold: 2.0
+        }
         """
     elif eval_second == 5:
         config_text += """
         track_future_samples: 50
+        step_configurations {
+        measurement_step: 5
+        lateral_miss_threshold: 1.0
+        longitudinal_miss_threshold: 2.0
+        }
         step_configurations {
         measurement_step: 9
         lateral_miss_threshold: 1.8
@@ -68,6 +99,11 @@ def _default_metrics_config(eval_second, num_modes_for_eval=6):
     else:
         config_text += """
         track_future_samples: 80
+        step_configurations {
+        measurement_step: 5
+        lateral_miss_threshold: 1.0
+        longitudinal_miss_threshold: 2.0
+        }
         step_configurations {
         measurement_step: 9
         lateral_miss_threshold: 1.8
@@ -109,17 +145,27 @@ def transform_preds_to_waymo_format(pred_dicts, top_k_for_eval=-1, eval_second=8
     if top_k_for_eval != -1:
         topK = min(top_k_for_eval, topK)
 
-    if num_future_frames in [30, 50, 80]:
+    if num_future_frames in [10, 30, 50, 80]:
         sampled_interval = 5
     assert num_future_frames % sampled_interval == 0, f'num_future_frames={num_future_frames}'
     num_frame_to_eval = num_future_frames // sampled_interval
 
-    if eval_second == 3:
+    if eval_second == 1:
+        num_frames_in_total = 21
+        num_frame_to_eval = 2
+
+    elif eval_second == 3:
         num_frames_in_total = 41
         num_frame_to_eval = 6
+
+    elif eval_second == 4:
+        num_frames_in_total = 51
+        num_frame_to_eval = 8
+
     elif eval_second == 5:
         num_frames_in_total = 61
         num_frame_to_eval = 10
+
     else:
         num_frames_in_total = 91
         num_frame_to_eval = 16
@@ -172,11 +218,12 @@ def transform_preds_to_waymo_format(pred_dicts, top_k_for_eval=-1, eval_second=8
 
 
 
-def waymo_evaluation(pred_dicts, top_k=-1, eval_second=8, num_modes_for_eval=6):
+def waymo_evaluation(pred_dicts, top_k=-1, eval_second=1, num_modes_for_eval=6):
 
     pred_score, pred_trajectory, gt_infos, object_type_cnt_dict = transform_preds_to_waymo_format(
         pred_dicts, top_k_for_eval=top_k, eval_second=eval_second,
     )
+
     eval_config = _default_metrics_config(eval_second=eval_second, num_modes_for_eval=num_modes_for_eval)
 
     pred_score = tf.convert_to_tensor(pred_score, np.float32)
@@ -197,6 +244,9 @@ def waymo_evaluation(pred_dicts, top_k=-1, eval_second=8, num_modes_for_eval=6):
         prediction_ground_truth_indices_mask=pred_gt_indices_mask,  # (batch_size, num_pred_groups, num_agents_per_group)
         object_type=object_type  # (batch_size, num_total_agents)
     )
+
+    print(' here')
+
 
     metric_names = config_util.get_breakdown_names_from_motion_config(eval_config)
 

@@ -11,6 +11,7 @@ import torch
 import tqdm
 
 from mtr.utils import common_utils
+from time import perf_counter
 
 
 def eval_one_epoch(cfg, model, dataloader, epoch_id, logger, dist_test=False, save_to_file=False, result_dir=None, logger_iter_interval=50):
@@ -38,10 +39,14 @@ def eval_one_epoch(cfg, model, dataloader, epoch_id, logger, dist_test=False, sa
         progress_bar = tqdm.tqdm(total=len(dataloader), leave=True, desc='eval', dynamic_ncols=True)
     start_time = time.time()
 
+    forward_times = [] 
     pred_dicts = []
     for i, batch_dict in enumerate(dataloader):
         with torch.no_grad():
+            start_forward = perf_counter()
             batch_pred_dicts = model(batch_dict)
+            end_forward = perf_counter()
+            forward_times.append(end_forward - start_forward) 
             final_pred_dicts = dataset.generate_prediction_dicts(batch_pred_dicts, output_path=final_output_dir if save_to_file else None)
             pred_dicts += final_pred_dicts
 
@@ -57,6 +62,10 @@ def eval_one_epoch(cfg, model, dataloader, epoch_id, logger, dist_test=False, sa
                         f'time_cost: {progress_bar.format_interval(past_time)}/{progress_bar.format_interval(remaining_time)}, '
                         f'{disp_str}')
 
+    if len(forward_times) > 0:
+        # print(forward_times)
+        avg_forward_time = sum(forward_times) / len(forward_times)
+        logger.info(f'Average forward pass time per batch: {avg_forward_time:.6f} seconds')
     if cfg.LOCAL_RANK == 0:
         progress_bar.close()
 
