@@ -218,7 +218,7 @@ def transform_preds_to_waymo_format(pred_dicts, top_k_for_eval=-1, eval_second=8
 
 
 
-def waymo_evaluation(pred_dicts, top_k=-1, eval_second=1, num_modes_for_eval=6):
+def waymo_evaluation(pred_dicts, top_k=-1, eval_second=8, num_modes_for_eval=6):
 
     pred_score, pred_trajectory, gt_infos, object_type_cnt_dict = transform_preds_to_waymo_format(
         pred_dicts, top_k_for_eval=top_k, eval_second=eval_second,
@@ -245,7 +245,7 @@ def waymo_evaluation(pred_dicts, top_k=-1, eval_second=1, num_modes_for_eval=6):
         object_type=object_type  # (batch_size, num_total_agents)
     )
 
-    print(' here')
+
 
 
     metric_names = config_util.get_breakdown_names_from_motion_config(eval_config)
@@ -330,6 +330,10 @@ def main():
         metric_result_str += '%s: %.4f \n' % (key, metric_results[key])
     print(metric_result_str)
     print(result_format_str)
+
+
+
+
 
 
 if __name__ == '__main__':

@@ -351,15 +351,25 @@ def create_infos_from_protos(raw_data_path, output_path, num_workers=16):
     #     pickle.dump(val_infos, f)
     # print('----------------Waymo info val file is saved to %s----------------' % val_filename)
 
-    debug_infos = get_infos_from_protos(
-        data_path=os.path.join(raw_data_path, 'debuging'),
-        output_path=os.path.join(output_path, 'processed_scenarios_debuging_single_example_30m'),
+    # debug_infos = get_infos_from_protos(
+    #     data_path=os.path.join(raw_data_path, 'debuging'),
+    #     output_path=os.path.join(output_path, 'processed_scenarios_debuging_single_example_30m'),
+    #     num_workers=num_workers
+    # )
+    # debug_filename = os.path.join(output_path, 'processed_scenarios_debuging_single_example_30m_infos.pkl')
+    # with open(debug_filename, 'wb') as f:
+    #     pickle.dump(debug_infos, f)
+    # print('----------------Waymo info val file is saved to %s----------------' % debug_filename)
+
+    val_infos = get_infos_from_protos(
+        data_path=os.path.join(raw_data_path, 'validation_interactive'),
+        output_path=os.path.join(output_path, 'processed_scenarios_validation_interactive'),
         num_workers=num_workers
     )
-    debug_filename = os.path.join(output_path, 'processed_scenarios_debuging_single_example_30m_infos.pkl')
-    with open(debug_filename, 'wb') as f:
-        pickle.dump(debug_infos, f)
-    print('----------------Waymo info val file is saved to %s----------------' % debug_filename)
+    val_filename = os.path.join(output_path, 'processed_scenarios_val_inter_infos.pkl')
+    with open(val_filename, 'wb') as f:
+        pickle.dump(val_infos, f)
+    print('----------------Waymo info val file is saved to %s----------------' % val_filename)
     
     
 

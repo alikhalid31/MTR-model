@@ -93,7 +93,8 @@ class WaymoDataset(DatasetTemplate):
         obj_ids = np.array(track_infos['object_id'])
         obj_trajs_full = track_infos['trajs']  # (num_objects, num_timestamp, 10)
         obj_trajs_past = obj_trajs_full[:, :current_time_index + 1]
-        obj_trajs_future = obj_trajs_full[:, current_time_index + 1:]
+        # obj_trajs_future = obj_trajs_full[:, current_time_index + 1:]
+        obj_trajs_future = obj_trajs_full[:, current_time_index + 1:current_time_index+11] # to restrict the ground truth to 1 sec in future
 
         center_objects, track_index_to_predict = self.get_interested_agents(
             track_index_to_predict=track_index_to_predict,
@@ -519,7 +520,17 @@ class WaymoDataset(DatasetTemplate):
                 num_modes_for_eval = pred_dicts[0][0]['pred_trajs'].shape[0]
             except:
                 num_modes_for_eval = 6
-            metric_results, result_format_str = waymo_evaluation(pred_dicts=pred_dicts, num_modes_for_eval=num_modes_for_eval)
+                
+            # metric_results, result_format_str = waymo_evaluation(pred_dicts=pred_dicts, eval_second=1, num_modes_for_eval=num_modes_for_eval)
+
+            # metric_result_str = '\n'
+            # for key in metric_results:
+            #     metric_results[key] = metric_results[key]
+            #     metric_result_str += '%s: %.4f \n' % (key, metric_results[key])
+            # metric_result_str += '\n'
+            # metric_result_str += result_format_str
+
+            metric_results, result_format_str = waymo_evaluation(pred_dicts=pred_dicts, eval_second=3, num_modes_for_eval=num_modes_for_eval)
 
             metric_result_str = '\n'
             for key in metric_results:
@@ -527,6 +538,15 @@ class WaymoDataset(DatasetTemplate):
                 metric_result_str += '%s: %.4f \n' % (key, metric_results[key])
             metric_result_str += '\n'
             metric_result_str += result_format_str
+
+            # metric_results, result_format_str = waymo_evaluation(pred_dicts=pred_dicts, eval_second=5, num_modes_for_eval=num_modes_for_eval)
+
+            # metric_result_str = '\n'
+            # for key in metric_results:
+            #     metric_results[key] = metric_results[key]
+            #     metric_result_str += '%s: %.4f \n' % (key, metric_results[key])
+            # metric_result_str += '\n'
+            # metric_result_str += result_format_str
         else:
             raise NotImplementedError
 
