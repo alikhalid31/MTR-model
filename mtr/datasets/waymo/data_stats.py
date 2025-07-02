@@ -175,9 +175,9 @@ def main():
     # Example usage
     csv_file_path = '../../../data/waymo/processed_scenarios_validation.csv'
     df = pd.read_csv(csv_file_path)
-    # get_count_histograms(df)
+    get_count_histograms(df)
 
-    # get_timestamps_histograms(df)
+    get_timestamps_histograms(df)
 
     get_interaction_histograms(df)
 
