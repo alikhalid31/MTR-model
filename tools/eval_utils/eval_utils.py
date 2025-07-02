@@ -90,8 +90,36 @@ def eval_one_epoch(cfg, model, dataloader, epoch_id, logger, dist_test=False, sa
     result_str, result_dict = dataset.evaluation(
         pred_dicts,
         output_path=final_output_dir, 
+        eval_sec=1
     )
+    logger.info('****************Evaluation for T=1.*****************')
+    logger.info(result_str)
+    ret_dict.update(result_dict)
 
+    result_str, result_dict = dataset.evaluation(
+        pred_dicts,
+        output_path=final_output_dir, 
+        eval_sec=3
+    )
+    logger.info('****************Evaluation for T=3.*****************')
+    logger.info(result_str)
+    ret_dict.update(result_dict)
+
+    result_str, result_dict = dataset.evaluation(
+        pred_dicts,
+        output_path=final_output_dir, 
+        eval_sec=5
+    )
+    logger.info('****************Evaluation for T=5.*****************')
+    logger.info(result_str)
+    ret_dict.update(result_dict)
+
+    result_str, result_dict = dataset.evaluation(
+        pred_dicts,
+        output_path=final_output_dir, 
+        eval_sec=8
+    )
+    logger.info('****************Evaluation for T=8.*****************')
     logger.info(result_str)
     ret_dict.update(result_dict)
 

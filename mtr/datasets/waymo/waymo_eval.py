@@ -245,9 +245,6 @@ def waymo_evaluation(pred_dicts, top_k=-1, eval_second=8, num_modes_for_eval=6):
         object_type=object_type  # (batch_size, num_total_agents)
     )
 
-
-
-
     metric_names = config_util.get_breakdown_names_from_motion_config(eval_config)
 
     result_dict = {}

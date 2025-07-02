@@ -513,7 +513,7 @@ class WaymoDataset(DatasetTemplate):
 
         return pred_dict_list
 
-    def evaluation(self, pred_dicts, output_path=None, eval_method='waymo', **kwargs):
+    def evaluation(self, pred_dicts, output_path=None, eval_method='waymo', eval_sec= 8, **kwargs):
         if eval_method == 'waymo':
             from .waymo_eval import waymo_evaluation
             try:
@@ -521,16 +521,8 @@ class WaymoDataset(DatasetTemplate):
             except:
                 num_modes_for_eval = 6
                 
-            # metric_results, result_format_str = waymo_evaluation(pred_dicts=pred_dicts, eval_second=1, num_modes_for_eval=num_modes_for_eval)
 
-            # metric_result_str = '\n'
-            # for key in metric_results:
-            #     metric_results[key] = metric_results[key]
-            #     metric_result_str += '%s: %.4f \n' % (key, metric_results[key])
-            # metric_result_str += '\n'
-            # metric_result_str += result_format_str
-
-            metric_results, result_format_str = waymo_evaluation(pred_dicts=pred_dicts, eval_second=3, num_modes_for_eval=num_modes_for_eval)
+            metric_results, result_format_str = waymo_evaluation(pred_dicts=pred_dicts, eval_second=eval_sec, num_modes_for_eval=num_modes_for_eval)
 
             metric_result_str = '\n'
             for key in metric_results:
@@ -539,14 +531,6 @@ class WaymoDataset(DatasetTemplate):
             metric_result_str += '\n'
             metric_result_str += result_format_str
 
-            # metric_results, result_format_str = waymo_evaluation(pred_dicts=pred_dicts, eval_second=5, num_modes_for_eval=num_modes_for_eval)
-
-            # metric_result_str = '\n'
-            # for key in metric_results:
-            #     metric_results[key] = metric_results[key]
-            #     metric_result_str += '%s: %.4f \n' % (key, metric_results[key])
-            # metric_result_str += '\n'
-            # metric_result_str += result_format_str
         else:
             raise NotImplementedError
 
