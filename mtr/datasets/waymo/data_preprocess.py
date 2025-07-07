@@ -292,29 +292,29 @@ def process_waymo_data_with_scenario_proto(data_file, output_path=None):
         track_infos = decode_tracks_from_proto(scenario.tracks)
 
         # filtering tracks to predict based on speed
-        # track_index= [cur_pred.track_index for cur_pred in scenario.tracks_to_predict]
+        track_index= [cur_pred.track_index for cur_pred in scenario.tracks_to_predict]
 
-        # track_index_filter =[]
-        # for index in track_index:
-        #     single_track = track_infos['trajs'][index] 
-        #     # 10 = timestamp, 7 = velocity_x, 8 = velocity_y
-        #     speed = np.sqrt(single_track[10][7]**2 + single_track[10][8]**2)
-        #     if speed >= 21 and speed <= 1000:
-        #         track_index_filter.append(index)
-        #         # print(speed)
+        track_index_filter =[]
+        for index in track_index:
+            single_track = track_infos['trajs'][index] 
+            # 10 = timestamp, 7 = velocity_x, 8 = velocity_y
+            speed = np.sqrt(single_track[10][7]**2 + single_track[10][8]**2)
+            if speed >55 and speed <= 60:
+                track_index_filter.append(index)
+                # print(speed)
 
 
 
-        # modified this code to filter out the tracks wrt to speed
-        # info['tracks_to_predict'] = {
-        #     'track_index': [cur_pred.track_index for cur_pred in scenario.tracks_to_predict if cur_pred.track_index in track_index_filter],
-        #     'difficulty': [cur_pred.difficulty for cur_pred in scenario.tracks_to_predict if cur_pred.track_index in track_index_filter]
-        # }
-
+        # modified code to filter out the tracks wrt to speed
         info['tracks_to_predict'] = {
-            'track_index': [cur_pred.track_index for cur_pred in scenario.tracks_to_predict],
-            'difficulty': [cur_pred.difficulty for cur_pred in scenario.tracks_to_predict]
-        }  # for training: suggestion of objects to train on, for val/test: need to be predicted
+            'track_index': [cur_pred.track_index for cur_pred in scenario.tracks_to_predict if cur_pred.track_index in track_index_filter],
+            'difficulty': [cur_pred.difficulty for cur_pred in scenario.tracks_to_predict if cur_pred.track_index in track_index_filter]
+        }
+
+        # info['tracks_to_predict'] = {
+        #     'track_index': [cur_pred.track_index for cur_pred in scenario.tracks_to_predict],
+        #     'difficulty': [cur_pred.difficulty for cur_pred in scenario.tracks_to_predict]
+        # }  # for training: suggestion of objects to train on, for val/test: need to be predicted
 
         # if conditoin to filter scenerio based on number of agents (tracks) in the scene 
         #if not (len(scenario.tracks) >=100 and len(scenario.tracks) < 1000):
@@ -402,10 +402,10 @@ def create_infos_from_protos(raw_data_path, output_path, num_workers=1):
     # df_rows, 
     debug_infos = get_infos_from_protos(
         data_path=os.path.join(raw_data_path, 'validation'),
-        output_path=os.path.join(output_path, 'processed_scenarios_validation_ego_1'),
+        output_path=os.path.join(output_path, 'processed_scenarios_validation_speed_60'),
         num_workers=num_workers
     )
-    debug_filename = os.path.join(output_path, 'processed_scenarios_val_ego_1_infos.pkl')
+    debug_filename = os.path.join(output_path, 'processed_scenarios_val_speed_60_infos.pkl')
     # df = pd.DataFrame(df_rows, columns=[
     # 'scenario', 'agnet_id', 'object_type',
     # 'past_valid_stamps', 'future_valid_stamps',
