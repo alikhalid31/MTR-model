@@ -280,8 +280,8 @@ def process_waymo_data_with_scenario_proto(data_file, output_path=None):
         scenario.ParseFromString(bytes(data.numpy()))
 
         # if condition to filter out the scenarios with no tracks to predict
-        if len(scenario.tracks_to_predict) != 1:
-            continue
+        # if len(scenario.tracks_to_predict) != 1:
+        #     continue
 
         info['scenario_id'] = scenario.scenario_id
         info['timestamps_seconds'] = list(scenario.timestamps_seconds)  # list of int of shape (91)
@@ -299,7 +299,7 @@ def process_waymo_data_with_scenario_proto(data_file, output_path=None):
             single_track = track_infos['trajs'][index] 
             # 10 = timestamp, 7 = velocity_x, 8 = velocity_y
             speed = np.sqrt(single_track[10][7]**2 + single_track[10][8]**2)
-            if speed >55 and speed <= 60:
+            if speed >45 and speed <= 50:
                 track_index_filter.append(index)
                 # print(speed)
 
@@ -402,10 +402,10 @@ def create_infos_from_protos(raw_data_path, output_path, num_workers=1):
     # df_rows, 
     debug_infos = get_infos_from_protos(
         data_path=os.path.join(raw_data_path, 'validation'),
-        output_path=os.path.join(output_path, 'processed_scenarios_validation_speed_60'),
+        output_path=os.path.join(output_path, 'processed_scenarios_validation_speed_50'),
         num_workers=num_workers
     )
-    debug_filename = os.path.join(output_path, 'processed_scenarios_val_speed_60_infos.pkl')
+    debug_filename = os.path.join(output_path, 'processed_scenarios_val_speed_50_infos.pkl')
     # df = pd.DataFrame(df_rows, columns=[
     # 'scenario', 'agnet_id', 'object_type',
     # 'past_valid_stamps', 'future_valid_stamps',
