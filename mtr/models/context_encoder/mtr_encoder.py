@@ -162,9 +162,13 @@ class MTREncoder(nn.Module):
         num_center_objects, num_objects, num_timestamps, _ = obj_trajs.shape
         num_polylines = map_polylines.shape[1]
 
+        print('object trajs shape:', obj_trajs.shape, 'object trajs mask shape:', obj_trajs_mask.shape)
         # apply polyline encoder
         obj_trajs_in = torch.cat((obj_trajs, obj_trajs_mask[:, :, :, None].type_as(obj_trajs)), dim=-1)
+        print('obj_trajs_in shape:', obj_trajs_in.shape)
         obj_polylines_feature = self.agent_polyline_encoder(obj_trajs_in, obj_trajs_mask)  # (num_center_objects, num_objects, C)
+        exit()
+
         map_polylines_feature = self.map_polyline_encoder(map_polylines, map_polylines_mask)  # (num_center_objects, num_polylines, C)
 
         # apply self-attn

@@ -12,6 +12,8 @@ import tqdm
 
 from mtr.utils import common_utils
 from time import perf_counter
+import json
+
 
 
 def eval_one_epoch(cfg, model, dataloader, epoch_id, logger, dist_test=False, save_to_file=False, result_dir=None, logger_iter_interval=50):
@@ -87,44 +89,60 @@ def eval_one_epoch(cfg, model, dataloader, epoch_id, logger, dist_test=False, sa
     with open(result_dir / 'result.pkl', 'wb') as f:
         pickle.dump(pred_dicts, f)
 
-    result_str, result_dict = dataset.evaluation(
-        pred_dicts,
-        output_path=final_output_dir, 
-        eval_sec=1
-    )
-    logger.info('****************Evaluation for T=1.*****************')
-    logger.info(result_str)
-    ret_dict.update(result_dict)
-
-    result_str, result_dict = dataset.evaluation(
+    mAP, minADE, minFDE, missRate = dataset.evaluation_custom(
         pred_dicts,
         output_path=final_output_dir, 
         eval_sec=3
     )
     logger.info('****************Evaluation for T=3.*****************')
-    logger.info(result_str)
-    ret_dict.update(result_dict)
+    data = {
+    'minADE': minADE,
+    'minFDE': minFDE,
+    'mAP': mAP,
+    'missRate': missRate
+    }
+    with open('results_mode_6k.json', 'w') as f:
+        json.dump(data, f, indent=2)
 
-    result_str, result_dict = dataset.evaluation(
-        pred_dicts,
-        output_path=final_output_dir, 
-        eval_sec=5
-    )
-    logger.info('****************Evaluation for T=5.*****************')
-    logger.info(result_str)
-    ret_dict.update(result_dict)
 
-    result_str, result_dict = dataset.evaluation(
-        pred_dicts,
-        output_path=final_output_dir, 
-        eval_sec=8
-    )
-    logger.info('****************Evaluation for T=8.*****************')
-    logger.info(result_str)
-    ret_dict.update(result_dict)
+    # result_str, result_dict = dataset.evaluation(
+    #     pred_dicts,
+    #     output_path=final_output_dir, 
+    #     eval_sec=1
+    # )
+    # logger.info('****************Evaluation for T=1.*****************')
+    # logger.info(result_str)
+    # ret_dict.update(result_dict)
 
-    logger.info('Result is save to %s' % result_dir)
-    logger.info('****************Evaluation done.*****************')
+    # result_str, result_dict = dataset.evaluation(
+    #     pred_dicts,
+    #     output_path=final_output_dir, 
+    #     eval_sec=3
+    # )
+    # logger.info('****************Evaluation for T=3.*****************')
+    # logger.info(result_str)
+    # ret_dict.update(result_dict)
+
+    # result_str, result_dict = dataset.evaluation(
+    #     pred_dicts,
+    #     output_path=final_output_dir, 
+    #     eval_sec=5
+    # )
+    # logger.info('****************Evaluation for T=5.*****************')
+    # logger.info(result_str)
+    # ret_dict.update(result_dict)
+
+    # result_str, result_dict = dataset.evaluation(
+    #     pred_dicts,
+    #     output_path=final_output_dir, 
+    #     eval_sec=8
+    # )
+    # logger.info('****************Evaluation for T=8.*****************')
+    # logger.info(result_str)
+    # ret_dict.update(result_dict)
+
+    # logger.info('Result is save to %s' % result_dir)
+    # logger.info('****************Evaluation done.*****************')
 
     return ret_dict
 

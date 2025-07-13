@@ -84,6 +84,7 @@ class WaymoDataset(DatasetTemplate):
 
         sdc_track_index = info['sdc_track_index']
         current_time_index = info['current_time_index']
+        current_time_index = 11
         timestamps = np.array(info['timestamps_seconds'][:current_time_index + 1], dtype=np.float32)
 
         track_infos = info['track_infos']
@@ -93,8 +94,8 @@ class WaymoDataset(DatasetTemplate):
         obj_ids = np.array(track_infos['object_id'])
         obj_trajs_full = track_infos['trajs']  # (num_objects, num_timestamp, 10)
         obj_trajs_past = obj_trajs_full[:, :current_time_index + 1]
-        # obj_trajs_future = obj_trajs_full[:, current_time_index + 1:]
-        obj_trajs_future = obj_trajs_full[:, current_time_index + 1:current_time_index+11] # to restrict the ground truth to 1 sec in future
+        obj_trajs_future = obj_trajs_full[:, current_time_index + 1:]
+        # obj_trajs_future = obj_trajs_full[:, current_time_index + 1:current_time_index+11] # to restrict the ground truth to 1 sec in future
 
         center_objects, track_index_to_predict = self.get_interested_agents(
             track_index_to_predict=track_index_to_predict,
@@ -110,6 +111,8 @@ class WaymoDataset(DatasetTemplate):
             track_index_to_predict=track_index_to_predict, sdc_track_index=sdc_track_index,
             timestamps=timestamps, obj_types=obj_types, obj_ids=obj_ids
         )
+
+        print(obj_trajs_data.shape, 'object trajs data shape')
 
         ret_dict = {
             'scenario_id': np.array([scene_id] * len(track_index_to_predict)),
@@ -175,6 +178,8 @@ class WaymoDataset(DatasetTemplate):
         obj_trajs_future_mask = obj_trajs_future_mask[:, valid_past_mask]  # (num_center_objects, num_objects, num_timestamps_future):
         obj_types = obj_types[valid_past_mask]
         obj_ids = obj_ids[valid_past_mask]
+
+        print(obj_trajs_data.shape, 'object trajs data shape after filtering')
 
         valid_index_cnt = valid_past_mask.cumsum(axis=0)
         track_index_to_predict_new = valid_index_cnt[track_index_to_predict] - 1
@@ -284,6 +289,7 @@ class WaymoDataset(DatasetTemplate):
             center_heading=center_objects[:, 6],
             heading_index=6, rot_vel_index=[7, 8]
         )
+        # print('object trajs past shape', obj_trajs_past.shape)
 
         ## generate the attributes for each object
         object_onehot_mask = torch.zeros((num_center_objects, num_objects, num_timestamps, 5))
@@ -315,8 +321,18 @@ class WaymoDataset(DatasetTemplate):
             acce,
         ), dim=-1)
 
+        # print(obj_trajs[:, :, :, 0:6].shape, 'object trajs shape')
+        # print(object_onehot_mask.shape, 'object onehot mask shape')
+        # print(object_time_embedding.shape, 'object time embedding shape')
+        # print(object_heading_embedding.shape, 'object heading embedding shape')
+        # print(obj_trajs[:, :, :, 7:9].shape, 'object velocity shape')
+        # print(acce.shape, 'object acceleration shape')  
+        # print('ret_obj_trajs shape:', ret_obj_trajs.shape)
+
         ret_obj_valid_mask = obj_trajs[:, :, :, -1]  # (num_center_obejcts, num_objects, num_timestamps)  # TODO: CHECK THIS, 20220322
         ret_obj_trajs[ret_obj_valid_mask == 0] = 0
+
+        print('ret_obj_trajs shape:', ret_obj_trajs.shape)
 
         ##  generate label for future trajectories
         obj_trajs_future = torch.from_numpy(obj_trajs_future).float()
@@ -535,6 +551,30 @@ class WaymoDataset(DatasetTemplate):
             raise NotImplementedError
 
         return metric_result_str, metric_results
+
+    def evaluation_custom(self, pred_dicts, output_path=None, eval_method='waymo', eval_sec= 8, **kwargs):
+        if eval_method == 'waymo':
+            from .waymo_eval import waymo_evaluation_custom
+            try:
+                num_modes_for_eval = pred_dicts[0][0]['pred_trajs'].shape[0]
+            except:
+                num_modes_for_eval = 6
+                
+
+            mAP, minADE, minFDE, missRate = waymo_evaluation_custom(pred_dicts=pred_dicts, eval_second=eval_sec, num_modes_for_eval=num_modes_for_eval)
+
+            # metric_result_str = '\n'
+            # for key in metric_results:
+            #     metric_results[key] = metric_results[key]
+            #     metric_result_str += '%s: %.4f \n' % (key, metric_results[key])
+            # metric_result_str += '\n'
+            # metric_result_str += result_format_str
+
+        else:
+            raise NotImplementedError
+
+        # return metric_result_str, metric_results
+        return mAP, minADE, minFDE, missRate
 
 
 if __name__ == '__main__':
