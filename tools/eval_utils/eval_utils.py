@@ -19,6 +19,7 @@ import json
 def eval_one_epoch(cfg, model, dataloader, epoch_id, logger, dist_test=False, save_to_file=False, result_dir=None, logger_iter_interval=50):
     result_dir.mkdir(parents=True, exist_ok=True)
 
+
     final_output_dir = result_dir / 'final_result' / 'data'
     if save_to_file:
         final_output_dir.mkdir(parents=True, exist_ok=True)
@@ -37,6 +38,7 @@ def eval_one_epoch(cfg, model, dataloader, epoch_id, logger, dist_test=False, sa
             )
     model.eval()
 
+
     if cfg.LOCAL_RANK == 0:
         progress_bar = tqdm.tqdm(total=len(dataloader), leave=True, desc='eval', dynamic_ncols=True)
     start_time = time.time()
@@ -53,6 +55,7 @@ def eval_one_epoch(cfg, model, dataloader, epoch_id, logger, dist_test=False, sa
             pred_dicts += final_pred_dicts
 
         disp_dict = {}
+
 
         if cfg.LOCAL_RANK == 0 and (i % logger_iter_interval == 0 or i == 0 or i + 1== len(dataloader)):
             past_time = progress_bar.format_dict['elapsed']

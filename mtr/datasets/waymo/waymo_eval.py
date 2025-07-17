@@ -249,29 +249,29 @@ def transform_preds_to_waymo_format_custom(pred_dicts, top_k_for_eval=-1, eval_s
     num_frame_to_eval = num_future_frames // sampled_interval
 
     if eval_second == 1:
-        num_frames_in_total = 21
+        num_frames_in_total = 31
         num_frame_to_eval = 10
 
     elif eval_second == 3:
-        num_frames_in_total = 41
+        num_frames_in_total = 51
         num_frame_to_eval = 30
 
     elif eval_second == 4:
-        num_frames_in_total = 51
+        num_frames_in_total = 61
         num_frame_to_eval = 40
 
     elif eval_second == 5:
-        num_frames_in_total = 61
+        num_frames_in_total = 71
         num_frame_to_eval = 50
 
     else:
         num_frames_in_total = 91
-        num_frame_to_eval = 80
+        num_frame_to_eval = 70
    
     batch_pred_trajs = np.zeros((num_scenario, num_max_objs_per_scene, topK, 1, num_frame_to_eval, 2))
     batch_pred_scores = np.zeros((num_scenario, num_max_objs_per_scene, topK))
-    gt_trajs = np.zeros((num_scenario, num_max_objs_per_scene, num_frames_in_total, 7))
-    gt_is_valid = np.zeros((num_scenario, num_max_objs_per_scene, num_frames_in_total), dtype=np.int)
+    gt_trajs = np.zeros((num_scenario, num_max_objs_per_scene, num_frames_in_total-10, 7))
+    gt_is_valid = np.zeros((num_scenario, num_max_objs_per_scene, num_frames_in_total-10), dtype=np.int)
     pred_gt_idxs = np.zeros((num_scenario, num_max_objs_per_scene, 1))
     pred_gt_idx_valid_mask = np.zeros((num_scenario, num_max_objs_per_scene, 1), dtype=np.int)
     object_type = np.zeros((num_scenario, num_max_objs_per_scene), dtype=np.object)
@@ -294,8 +294,8 @@ def transform_preds_to_waymo_format_custom(pred_dicts, top_k_for_eval=-1, eval_s
             # batch_pred_trajs[scene_idx, obj_idx] = cur_pred['pred_trajs'][:topK, np.newaxis, 4::sampled_interval, :][:, :, :num_frame_to_eval, :]
             batch_pred_trajs[scene_idx, obj_idx] = cur_pred['pred_trajs'][:topK, np.newaxis, 0::sampled_interval, :][:, :, :num_frame_to_eval, :]
             batch_pred_scores[scene_idx, obj_idx] = cur_pred['pred_scores'][:topK]
-            gt_trajs[scene_idx, obj_idx] = cur_pred['gt_trajs'][:num_frames_in_total, [0, 1, 3, 4, 6, 7, 8]]  # (num_timestamps_in_total, 10), [cx, cy, cz, dx, dy, dz, heading, vel_x, vel_y, valid]
-            gt_is_valid[scene_idx, obj_idx] = cur_pred['gt_trajs'][:num_frames_in_total, -1]
+            gt_trajs[scene_idx, obj_idx] = cur_pred['gt_trajs'][10:num_frames_in_total, [0, 1, 3, 4, 6, 7, 8]]  # (num_timestamps_in_total, 10), [cx, cy, cz, dx, dy, dz, heading, vel_x, vel_y, valid]
+            gt_is_valid[scene_idx, obj_idx] = cur_pred['gt_trajs'][10:num_frames_in_total, -1]
             pred_gt_idxs[scene_idx, obj_idx, 0] = obj_idx
             pred_gt_idx_valid_mask[scene_idx, obj_idx, 0] = 1
             object_type[scene_idx, obj_idx] = object_type_to_id[cur_pred['object_type']]

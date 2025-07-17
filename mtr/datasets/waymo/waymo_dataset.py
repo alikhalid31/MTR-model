@@ -34,7 +34,7 @@ class WaymoDataset(DatasetTemplate):
 
         for func_name, val in self.dataset_cfg.INFO_FILTER_DICT.items():
             infos = getattr(self, func_name)(infos, val)
-
+        infos = self.filter_info_by_validity(infos)
         return infos
 
     def filter_info_by_object_type(self, infos, valid_object_types=None):
@@ -52,13 +52,40 @@ class WaymoDataset(DatasetTemplate):
             if valid_mask.sum() == 0:
                 continue
 
-            assert len(cur_info['tracks_to_predict'].keys()) == 3, f"{cur_info['tracks_to_predict'].keys()}"
+            assert len(cur_info['tracks_to_predict'].keys()) == 5, f"{cur_info['tracks_to_predict'].keys()}"
             cur_info['tracks_to_predict']['track_index'] = list(np.array(cur_info['tracks_to_predict']['track_index'])[valid_mask])
             cur_info['tracks_to_predict']['object_type'] = list(np.array(cur_info['tracks_to_predict']['object_type'])[valid_mask])
             cur_info['tracks_to_predict']['difficulty'] = list(np.array(cur_info['tracks_to_predict']['difficulty'])[valid_mask])
+            cur_info['tracks_to_predict']['valid_20s'] = list(np.array(cur_info['tracks_to_predict']['valid_20s'])[valid_mask])
 
             ret_infos.append(cur_info)
         self.logger.info(f'Total scenes after filter_info_by_object_type: {len(ret_infos)}')
+        return ret_infos
+
+
+    def filter_info_by_validity(self, infos):
+        ret_infos = []
+        for cur_info in infos:
+            num_interested_agents = cur_info['tracks_to_predict']['track_index'].__len__()
+            if num_interested_agents == 0:
+                continue
+
+            valid_mask = []
+            for idx, cur_track_index in enumerate(cur_info['tracks_to_predict']['track_index']):
+                valid_mask.append(cur_info['tracks_to_predict']['valid_20s'][idx]==1)
+
+            valid_mask = np.array(valid_mask) > 0
+            if valid_mask.sum() == 0:
+                continue
+
+            assert len(cur_info['tracks_to_predict'].keys()) == 5, f"{cur_info['tracks_to_predict'].keys()}"
+            cur_info['tracks_to_predict']['track_index'] = list(np.array(cur_info['tracks_to_predict']['track_index'])[valid_mask])
+            cur_info['tracks_to_predict']['object_type'] = list(np.array(cur_info['tracks_to_predict']['object_type'])[valid_mask])
+            cur_info['tracks_to_predict']['difficulty'] = list(np.array(cur_info['tracks_to_predict']['difficulty'])[valid_mask])
+            cur_info['tracks_to_predict']['valid_20s'] = list(np.array(cur_info['tracks_to_predict']['valid_20s'])[valid_mask])
+
+            ret_infos.append(cur_info)
+        # self.logger.info(f'Total scenes after filter_info_by_object_type: {len(ret_infos)}')
         return ret_infos
 
     def __len__(self):
@@ -83,8 +110,9 @@ class WaymoDataset(DatasetTemplate):
             info = pickle.load(f)
 
         sdc_track_index = info['sdc_track_index']
-        current_time_index = info['current_time_index']
-        current_time_index = 11
+        # current_time_index = info['current_time_index']
+        current_time_index = 10
+
         timestamps = np.array(info['timestamps_seconds'][:current_time_index + 1], dtype=np.float32)
 
         track_infos = info['track_infos']
@@ -93,8 +121,8 @@ class WaymoDataset(DatasetTemplate):
         obj_types = np.array(track_infos['object_type'])
         obj_ids = np.array(track_infos['object_id'])
         obj_trajs_full = track_infos['trajs']  # (num_objects, num_timestamp, 10)
-        obj_trajs_past = obj_trajs_full[:, :current_time_index + 1]
-        obj_trajs_future = obj_trajs_full[:, current_time_index + 1:]
+        obj_trajs_past = obj_trajs_full[:, 10:current_time_index+10 + 1]
+        obj_trajs_future = obj_trajs_full[:, current_time_index+10 + 1:]
         # obj_trajs_future = obj_trajs_full[:, current_time_index + 1:current_time_index+11] # to restrict the ground truth to 1 sec in future
 
         center_objects, track_index_to_predict = self.get_interested_agents(
@@ -112,7 +140,7 @@ class WaymoDataset(DatasetTemplate):
             timestamps=timestamps, obj_types=obj_types, obj_ids=obj_ids
         )
 
-        print(obj_trajs_data.shape, 'object trajs data shape')
+        # print(obj_trajs_data.shape, 'object trajs data shape')
 
         ret_dict = {
             'scenario_id': np.array([scene_id] * len(track_index_to_predict)),
@@ -179,7 +207,7 @@ class WaymoDataset(DatasetTemplate):
         obj_types = obj_types[valid_past_mask]
         obj_ids = obj_ids[valid_past_mask]
 
-        print(obj_trajs_data.shape, 'object trajs data shape after filtering')
+        # print(obj_trajs_data.shape, 'object trajs data shape after filtering')
 
         valid_index_cnt = valid_past_mask.cumsum(axis=0)
         track_index_to_predict_new = valid_index_cnt[track_index_to_predict] - 1
@@ -332,7 +360,7 @@ class WaymoDataset(DatasetTemplate):
         ret_obj_valid_mask = obj_trajs[:, :, :, -1]  # (num_center_obejcts, num_objects, num_timestamps)  # TODO: CHECK THIS, 20220322
         ret_obj_trajs[ret_obj_valid_mask == 0] = 0
 
-        print('ret_obj_trajs shape:', ret_obj_trajs.shape)
+        # print('ret_obj_trajs shape:', ret_obj_trajs.shape)
 
         ##  generate label for future trajectories
         obj_trajs_future = torch.from_numpy(obj_trajs_future).float()
