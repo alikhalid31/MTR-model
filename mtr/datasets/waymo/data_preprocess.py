@@ -265,50 +265,53 @@ def process_waymo_data_with_scenario_proto(data_file, output_path=None):
         info = {}
         scenario = scenario_pb2.Scenario()
         scenario.ParseFromString(bytes(data.numpy()))
-        # if scenario.scenario_id == 'f3732afc22c7590c': # debuging single example with 196 agents
+        # if (len(scenario.tracks_to_predict)==1):
+        #     print(scenario.scenario_id)
+        #     exit()
+        if scenario.scenario_id == '18e1d40911f500dd': # debuging single example with 196 agents
 
-        info['scenario_id'] = scenario.scenario_id
-        info['timestamps_seconds'] = list(scenario.timestamps_seconds)  # list of int of shape (91)
-        # info['current_time_index'] = scenario.current_time_index  # int, 10
-        info['current_time_index'] = 20  # int, 10
-        info['sdc_track_index'] = scenario.sdc_track_index  # int
-        info['objects_of_interest'] = list(scenario.objects_of_interest)  # list, could be empty list
+            info['scenario_id'] = scenario.scenario_id
+            info['timestamps_seconds'] = list(scenario.timestamps_seconds)  # list of int of shape (91)
+            # info['current_time_index'] = scenario.current_time_index  # int, 10
+            info['current_time_index'] = 20  # int, 10
+            info['sdc_track_index'] = scenario.sdc_track_index  # int
+            info['objects_of_interest'] = list(scenario.objects_of_interest)  # list, could be empty list
 
-        info['tracks_to_predict'] = {
-            'track_index': [cur_pred.track_index for cur_pred in scenario.tracks_to_predict],
-            'difficulty': [cur_pred.difficulty for cur_pred in scenario.tracks_to_predict]
-        }  # for training: suggestion of objects to train on, for val/test: need to be predicted
+            info['tracks_to_predict'] = {
+                'track_index': [cur_pred.track_index for cur_pred in scenario.tracks_to_predict],
+                'difficulty': [cur_pred.difficulty for cur_pred in scenario.tracks_to_predict]
+            }  # for training: suggestion of objects to train on, for val/test: need to be predicted
 
-        track_infos = decode_tracks_from_proto(scenario.tracks)
-        info['tracks_to_predict']['object_type'] = [track_infos['object_type'][cur_idx] for cur_idx in info['tracks_to_predict']['track_index']]
-        info['tracks_to_predict']['valid_20s'] = [track_infos['trajs'][cur_idx][info['current_time_index']][-1] for cur_idx in info['tracks_to_predict']['track_index']]
-        info['tracks_to_predict']['valid_30s'] = [track_infos['trajs'][cur_idx][30][-1] for cur_idx in info['tracks_to_predict']['track_index']]
-        # print(info['tracks_to_predict']['valid'])
-        # exit()
-        # trajectories , center_index  = filter_tracks_by_distance(track_infos, info, threshold=30)
-        
-        # # track_infos['trajs'] = trajectories
-        # info['tracks_to_predict']['track_index'] = [center_index]
-        # info['tracks_to_predict']['difficulty'] = [cur_pred.difficulty for cur_pred in scenario.tracks_to_predict if cur_pred.track_index == center_index]
-        # info['tracks_to_predict']['object_type'] = [track_infos['object_type'][cur_idx] for cur_idx in info['tracks_to_predict']['track_index']]
+            track_infos = decode_tracks_from_proto(scenario.tracks)
+            info['tracks_to_predict']['object_type'] = [track_infos['object_type'][cur_idx] for cur_idx in info['tracks_to_predict']['track_index']]
+            info['tracks_to_predict']['valid_20s'] = [track_infos['trajs'][cur_idx][info['current_time_index']][-1] for cur_idx in info['tracks_to_predict']['track_index']]
+            info['tracks_to_predict']['valid_30s'] = [track_infos['trajs'][cur_idx][30][-1] for cur_idx in info['tracks_to_predict']['track_index']]
+            # print(info['tracks_to_predict']['valid'])
+            # exit()
+            # trajectories , center_index  = filter_tracks_by_distance(track_infos, info, threshold=30)
+            
+            # # track_infos['trajs'] = trajectories
+            # info['tracks_to_predict']['track_index'] = [center_index]
+            # info['tracks_to_predict']['difficulty'] = [cur_pred.difficulty for cur_pred in scenario.tracks_to_predict if cur_pred.track_index == center_index]
+            # info['tracks_to_predict']['object_type'] = [track_infos['object_type'][cur_idx] for cur_idx in info['tracks_to_predict']['track_index']]
 
 
-        # decode map related data
-        map_infos = decode_map_features_from_proto(scenario.map_features)
-        dynamic_map_infos = decode_dynamic_map_states_from_proto(scenario.dynamic_map_states)
+            # decode map related data
+            map_infos = decode_map_features_from_proto(scenario.map_features)
+            dynamic_map_infos = decode_dynamic_map_states_from_proto(scenario.dynamic_map_states)
 
-        save_infos = {
-            'track_infos': track_infos,
-            'dynamic_map_infos': dynamic_map_infos,
-            'map_infos': map_infos
-        }
-        save_infos.update(info)
+            save_infos = {
+                'track_infos': track_infos,
+                'dynamic_map_infos': dynamic_map_infos,
+                'map_infos': map_infos
+            }
+            save_infos.update(info)
 
-        output_file = os.path.join(output_path, f'sample_{scenario.scenario_id}.pkl')
-        with open(output_file, 'wb') as f:
-            pickle.dump(save_infos, f)
+            output_file = os.path.join(output_path, f'sample_{scenario.scenario_id}.pkl')
+            with open(output_file, 'wb') as f:
+                pickle.dump(save_infos, f)
 
-        ret_infos.append(info)
+            ret_infos.append(info)
 
 
     return ret_infos
@@ -367,10 +370,10 @@ def create_infos_from_protos(raw_data_path, output_path, num_workers=1):
 
     val_infos = get_infos_from_protos(
         data_path=os.path.join(raw_data_path, 'debuging'),
-        output_path=os.path.join(output_path, 'processed_scenarios_debuging_20s_history'),
+        output_path=os.path.join(output_path, 'processed_scenarios_debuging_single_example_20s_history'),
         num_workers=num_workers
     )
-    val_filename = os.path.join(output_path, 'processed_scenarios_debuging_20s_history_infos.pkl')
+    val_filename = os.path.join(output_path, 'processed_scenarios_debuging__single_example_20s_history_infos.pkl')
     with open(val_filename, 'wb') as f:
         pickle.dump(val_infos, f)
     print('----------------Waymo info val file is saved to %s----------------' % val_filename)
