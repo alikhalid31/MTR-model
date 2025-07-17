@@ -429,8 +429,8 @@ def waymo_evaluation(pred_dicts, top_k=-1, eval_second=8, num_modes_for_eval=6):
     pred_gt_indices = tf.convert_to_tensor(gt_infos['pred_gt_indices'], tf.int64)
     pred_gt_indices_mask = tf.convert_to_tensor(gt_infos['pred_gt_indices_mask'], np.bool)
     object_type = tf.convert_to_tensor(gt_infos['object_type'], tf.int64)
-    # print(pred_trajs)
-    # print(gt_trajs)
+    print(pred_trajs)
+    print(gt_trajs)
 
     
 
