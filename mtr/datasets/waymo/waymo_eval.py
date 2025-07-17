@@ -32,7 +32,7 @@ object_type_to_id = {
 }
 
 def _default_metrics_config_custom(eval_second, num_modes_for_eval=6, measurement_step=5):
-    assert eval_second in [1, 3, 4, 5, 8]
+    assert eval_second in [1, 3, 4, 5, 7]
     config = motion_metrics_pb2.MotionMetricsConfig()
     config_text = """
     track_steps_per_second: 10
@@ -242,36 +242,39 @@ def transform_preds_to_waymo_format_custom(pred_dicts, top_k_for_eval=-1, eval_s
     if top_k_for_eval != -1:
         topK = min(top_k_for_eval, topK)
 
-    if num_future_frames in [10, 30, 50, 80]:
+    if num_future_frames in [10, 30, 50, 70]:
         sampled_interval = 1
         # sampled_interval = 5
     assert num_future_frames % sampled_interval == 0, f'num_future_frames={num_future_frames}'
     num_frame_to_eval = num_future_frames // sampled_interval
 
     if eval_second == 1:
-        num_frames_in_total = 21
+        num_frames_in_total = 31
         num_frame_to_eval = 10
 
     elif eval_second == 3:
-        num_frames_in_total = 41
+        num_frames_in_total = 51
         num_frame_to_eval = 30
 
     elif eval_second == 4:
-        num_frames_in_total = 51
+        num_frames_in_total = 61
         num_frame_to_eval = 40
 
     elif eval_second == 5:
-        num_frames_in_total = 61
+        num_frames_in_total = 71
         num_frame_to_eval = 50
 
     else:
         num_frames_in_total = 91
-        num_frame_to_eval = 80
+        num_frame_to_eval = 70
    
     batch_pred_trajs = np.zeros((num_scenario, num_max_objs_per_scene, topK, 1, num_frame_to_eval, 2))
     batch_pred_scores = np.zeros((num_scenario, num_max_objs_per_scene, topK))
-    gt_trajs = np.zeros((num_scenario, num_max_objs_per_scene, num_frames_in_total, 7))
-    gt_is_valid = np.zeros((num_scenario, num_max_objs_per_scene, num_frames_in_total), dtype=np.int)
+    # reducing total number of frames by 10
+    # the reason is that we are only considering 2s to 9s for GT and discarsing first 10 sec. 
+    # this is done to make it compatible with the waymo evaluation library
+    gt_trajs = np.zeros((num_scenario, num_max_objs_per_scene, num_frames_in_total-10, 7))
+    gt_is_valid = np.zeros((num_scenario, num_max_objs_per_scene, num_frames_in_total-10), dtype=np.int)
     pred_gt_idxs = np.zeros((num_scenario, num_max_objs_per_scene, 1))
     pred_gt_idx_valid_mask = np.zeros((num_scenario, num_max_objs_per_scene, 1), dtype=np.int)
     object_type = np.zeros((num_scenario, num_max_objs_per_scene), dtype=np.object)
@@ -294,8 +297,11 @@ def transform_preds_to_waymo_format_custom(pred_dicts, top_k_for_eval=-1, eval_s
             # batch_pred_trajs[scene_idx, obj_idx] = cur_pred['pred_trajs'][:topK, np.newaxis, 4::sampled_interval, :][:, :, :num_frame_to_eval, :]
             batch_pred_trajs[scene_idx, obj_idx] = cur_pred['pred_trajs'][:topK, np.newaxis, 0::sampled_interval, :][:, :, :num_frame_to_eval, :]
             batch_pred_scores[scene_idx, obj_idx] = cur_pred['pred_scores'][:topK]
-            gt_trajs[scene_idx, obj_idx] = cur_pred['gt_trajs'][:num_frames_in_total, [0, 1, 3, 4, 6, 7, 8]]  # (num_timestamps_in_total, 10), [cx, cy, cz, dx, dy, dz, heading, vel_x, vel_y, valid]
-            gt_is_valid[scene_idx, obj_idx] = cur_pred['gt_trajs'][:num_frames_in_total, -1]
+            # starting from 10 instead of 0 for GT
+            # this is because the the waymo library function only discard first 10 frames not 20.
+            # as we are using 20 historical frames so discarding first 10 frames ourselves
+            gt_trajs[scene_idx, obj_idx] = cur_pred['gt_trajs'][10:num_frames_in_total, [0, 1, 3, 4, 6, 7, 8]]  # (num_timestamps_in_total, 10), [cx, cy, cz, dx, dy, dz, heading, vel_x, vel_y, valid]
+            gt_is_valid[scene_idx, obj_idx] = cur_pred['gt_trajs'][10:num_frames_in_total, -1]
             pred_gt_idxs[scene_idx, obj_idx, 0] = obj_idx
             pred_gt_idx_valid_mask[scene_idx, obj_idx, 0] = 1
             object_type[scene_idx, obj_idx] = object_type_to_id[cur_pred['object_type']]
@@ -525,6 +531,9 @@ def waymo_evaluation_custom(pred_dicts, top_k=-1, eval_second=8, num_modes_for_e
 
         
 
+        # this function requires that the GT steps should be 11 more than the predicted steps 
+        # when using 2 sec of history and 8 sec of future, the GT steps are 21 more than the predicted steps
+        # to resolve this issue, we are discarding first 10 frames of GT
         metric_results = py_metrics_ops.motion_metrics(
             config=eval_config.SerializeToString(),
             prediction_trajectory=pred_trajs,  # (batch_size, num_pred_groups, top_k, num_agents_per_group, num_pred_steps, )
