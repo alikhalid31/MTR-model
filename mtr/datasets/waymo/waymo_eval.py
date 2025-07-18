@@ -278,6 +278,7 @@ def transform_preds_to_waymo_format_custom(pred_dicts, top_k_for_eval=-1, eval_s
     object_id = np.zeros((num_scenario, num_max_objs_per_scene), dtype=np.int)
     scenario_id = np.zeros((num_scenario), dtype=np.object)
 
+
     object_type_cnt_dict = {}
     for key in object_type_to_id.keys():
         object_type_cnt_dict[key] = 0
@@ -429,8 +430,6 @@ def waymo_evaluation(pred_dicts, top_k=-1, eval_second=8, num_modes_for_eval=6):
     pred_gt_indices = tf.convert_to_tensor(gt_infos['pred_gt_indices'], tf.int64)
     pred_gt_indices_mask = tf.convert_to_tensor(gt_infos['pred_gt_indices_mask'], np.bool)
     object_type = tf.convert_to_tensor(gt_infos['object_type'], tf.int64)
-    print(pred_trajs)
-    print(gt_trajs)
 
     
 
@@ -521,9 +520,9 @@ def waymo_evaluation_custom(pred_dicts, top_k=-1, eval_second=8, num_modes_for_e
         pred_gt_indices_mask = tf.convert_to_tensor(gt_infos['pred_gt_indices_mask'], np.bool)
         object_type = tf.convert_to_tensor(gt_infos['object_type'], tf.int64)
         # print(pred_trajs)
-        # print(gt_trajs)
+        # print(gt_trajs[:,:,21:,:2])
 
-        
+        # exit()
 
         metric_results = py_metrics_ops.motion_metrics(
             config=eval_config.SerializeToString(),

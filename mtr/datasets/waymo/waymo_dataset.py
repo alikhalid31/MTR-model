@@ -34,7 +34,9 @@ class WaymoDataset(DatasetTemplate):
 
         for func_name, val in self.dataset_cfg.INFO_FILTER_DICT.items():
             infos = getattr(self, func_name)(infos, val)
+
         infos = self.filter_info_by_validity(infos)
+
         return infos
 
     def filter_info_by_object_type(self, infos, valid_object_types=None):
@@ -85,6 +87,7 @@ class WaymoDataset(DatasetTemplate):
             cur_info['tracks_to_predict']['valid_20s'] = list(np.array(cur_info['tracks_to_predict']['valid_20s'])[valid_mask])
 
             ret_infos.append(cur_info)
+
         # self.logger.info(f'Total scenes after filter_info_by_object_type: {len(ret_infos)}')
         return ret_infos
 
@@ -104,25 +107,25 @@ class WaymoDataset(DatasetTemplate):
         Returns:
 
         """
-        info = self.infos[index]
-        scene_id = info['scenario_id']
+        old_info = self.infos[index]
+        scene_id = old_info['scenario_id']
         with open(self.data_path / f'sample_{scene_id}.pkl', 'rb') as f:
             info = pickle.load(f)
 
         sdc_track_index = info['sdc_track_index']
-        # current_time_index = info['current_time_index']
-        current_time_index = 10
+        current_time_index = info['current_time_index']
+        # current_time_index = 10
 
-        timestamps = np.array(info['timestamps_seconds'][:current_time_index + 1], dtype=np.float32)
+        timestamps = np.array(info['timestamps_seconds'][10:current_time_index + 1], dtype=np.float32)
 
         track_infos = info['track_infos']
 
-        track_index_to_predict = np.array(info['tracks_to_predict']['track_index'])
+        track_index_to_predict = np.array(old_info['tracks_to_predict']['track_index'])
         obj_types = np.array(track_infos['object_type'])
         obj_ids = np.array(track_infos['object_id'])
         obj_trajs_full = track_infos['trajs']  # (num_objects, num_timestamp, 10)
-        obj_trajs_past = obj_trajs_full[:, 10:current_time_index+10 + 1]
-        obj_trajs_future = obj_trajs_full[:, current_time_index+10 + 1:]
+        obj_trajs_past = obj_trajs_full[:, 10:current_time_index + 1]
+        obj_trajs_future = obj_trajs_full[:, current_time_index + 1:]
         # obj_trajs_future = obj_trajs_full[:, current_time_index + 1:current_time_index+11] # to restrict the ground truth to 1 sec in future
 
         center_objects, track_index_to_predict = self.get_interested_agents(
