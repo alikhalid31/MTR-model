@@ -169,7 +169,7 @@ def decode_dynamic_map_states_from_proto(dynamic_map_states):
 def process_waymo_data_with_scenario_proto(data_file, output_path=None):
     dataset = tf.data.TFRecordDataset(data_file, compression_type='')
     ret_infos = []
-    # df_rows=[]
+
     for cnt, data in enumerate(dataset):
         info = {}
         scenario = scenario_pb2.Scenario()
@@ -184,11 +184,30 @@ def process_waymo_data_with_scenario_proto(data_file, output_path=None):
 
         track_infos = decode_tracks_from_proto(scenario.tracks)
 
+        # filtering tracks to predict based on speed
+        track_index= [cur_pred.track_index for cur_pred in scenario.tracks_to_predict]
+
+        track_index_filter =[]
+        for index in track_index:
+            single_track = track_infos['trajs'][index] 
+            # 10 = timestamp, 7 = velocity_x, 8 = velocity_y
+            speed = np.sqrt(single_track[10][7]**2 + single_track[10][8]**2)
+            if speed >0 and speed <= 5:
+                track_index_filter.append(index)
+                # print(speed)
+
+
+
+        # modified code to filter out the tracks wrt to speed
         info['tracks_to_predict'] = {
-            'track_index': [cur_pred.track_index for cur_pred in scenario.tracks_to_predict],
-            'difficulty': [cur_pred.difficulty for cur_pred in scenario.tracks_to_predict]
-        }  # for training: suggestion of objects to train on, for val/test: need to be predicted
- 
+            'track_index': [cur_pred.track_index for cur_pred in scenario.tracks_to_predict if cur_pred.track_index in track_index_filter],
+            'difficulty': [cur_pred.difficulty for cur_pred in scenario.tracks_to_predict if cur_pred.track_index in track_index_filter]
+        }
+
+        # info['tracks_to_predict'] = {
+        #     'track_index': [cur_pred.track_index for cur_pred in scenario.tracks_to_predict],
+        #     'difficulty': [cur_pred.difficulty for cur_pred in scenario.tracks_to_predict]
+        # }  # for training: suggestion of objects to train on, for val/test: need to be predicted   
         
         info['tracks_to_predict']['object_type'] = [track_infos['object_type'][cur_idx] for cur_idx in info['tracks_to_predict']['track_index']]
         
@@ -225,11 +244,13 @@ def get_infos_from_protos(data_path, output_path=None, num_workers=8):
     src_files = glob.glob(os.path.join(data_path, '*.tfrecord*'))
     src_files.sort()
 
+
     # func(src_files[0])
 
     with multiprocessing.Pool(num_workers) as p:
         data_infos = list(tqdm(p.imap(func, src_files), total=len(src_files)))
- 
+
+
     all_infos = [item for infos in data_infos for item in infos]
 
     return  all_infos
@@ -258,11 +279,12 @@ def create_infos_from_protos(raw_data_path, output_path, num_workers=1):
     
     debug_infos = get_infos_from_protos(
         data_path=os.path.join(raw_data_path, 'validation'),
-        output_path=os.path.join(output_path, 'processed_scenarios_validation'),
+        output_path=os.path.join(output_path, 'processed_scenarios_validation_speed_5'),
         num_workers=num_workers
     )
-    debug_filename = os.path.join(output_path, 'processed_scenarios_val_infos.pkl')
-   
+    debug_filename = os.path.join(output_path, 'processed_scenarios_val_speed_5_infos.pkl')
+    # df = pd.DataFrame(df_rows, columns=[
+
     with open(debug_filename, 'wb') as f:
         pickle.dump(debug_infos, f)
     print('----------------Waymo info debug file is saved to %s----------------' % debug_filename)

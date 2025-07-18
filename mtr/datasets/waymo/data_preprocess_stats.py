@@ -14,6 +14,109 @@ from tqdm import tqdm
 from waymo_open_dataset.protos import scenario_pb2
 from waymo_types import object_type, lane_type, road_line_type, road_edge_type, signal_state, polyline_type
 
+import pandas as pd
+from shapely.geometry import LineString
+from itertools import combinations
+
+# function to count total intersections between all the segments of polylines
+def count_polyline_intersections(polylines):
+    """
+    Given a list of polylines (each is a list of (x, y) tuples),
+    count how many times the line segments intersect each other.
+
+    Args:
+        polylines: List of polylines, where each polyline is a list of (x, y) tuples.
+
+    Returns:
+        Total number of pairwise segment intersections.
+    """
+    segments = []
+
+    # Break each polyline into line segments
+    for polyline in polylines:
+        for i in range(len(polyline) - 1):
+            segment = LineString([polyline[i], polyline[i + 1]])
+            segments.append(segment)
+
+    # Count all unique intersections
+    intersection_count = 0
+    for seg1, seg2 in combinations(segments, 2):
+        if seg1.crosses(seg2) or seg1.intersects(seg2):
+            if seg1.intersection(seg2).geom_type in ['Point', 'MultiPoint', 'LineString']:
+                intersection_count += 1
+
+    return intersection_count
+
+# funtion to count intersections between polylines, but only once per pair of polylines
+def count_polyline_intersections_unique(polylines):
+    """
+    Given a list of polylines (each is a list of (x, y) tuples),
+    count how many times polylines intersect each other — only once per polyline pair.
+
+    Args:
+        polylines: List of polylines, where each polyline is a list of (x, y) tuples.
+
+    Returns:
+        Total number of unique polyline pair intersections.
+    """
+    # Convert each polyline into list of segments
+    all_segments = []
+    for polyline in polylines:
+        segments = []
+        for i in range(len(polyline) - 1):
+            segment = LineString([polyline[i], polyline[i + 1]])
+            segments.append(segment)
+        all_segments.append(segments)
+
+    intersected_pairs = set()
+
+    # Check all unique pairs of polylines
+    for i, j in combinations(range(len(polylines)), 2):
+        segments_i = all_segments[i]
+        segments_j = all_segments[j]
+
+        # Check if any segment from polyline i intersects any segment from polyline j
+        for seg1 in segments_i:
+            for seg2 in segments_j:
+                if seg1.crosses(seg2) or seg1.intersects(seg2):
+                    if seg1.intersection(seg2).geom_type in ['Point', 'MultiPoint', 'LineString']:
+                        intersected_pairs.add((i, j))
+                        break  # Stop checking this pair once intersection is found
+            else:
+                continue
+            break
+
+    return len(intersected_pairs)
+
+def populate_dataframe(info, track_infos, interactions_count):
+    rows=[]
+    scenario_id = info['scenario_id']
+    current_time_index = info['current_time_index']
+
+    for idx, track in enumerate(track_infos['trajs']):
+        object_id = track_infos['object_id'][idx]
+        object_type = track_infos['object_type'][idx]
+        # Split into past and future trajectories
+        past_traj = track[:current_time_index]
+        future_traj = track[current_time_index:]
+        curr_traj = track[current_time_index ]
+
+        # The last column (index 9) is the `valid` flag
+        valid_past = int(np.sum(past_traj[:, 9]))     # counts how many are valid in past
+        valid_future = int(np.sum(future_traj[:, 9])) # counts how many are valid in future
+        valid_current = int(np.sum(curr_traj[9])) # valid at current time index
+        
+        to_predict = False
+        if idx in info['tracks_to_predict']['track_index']:
+            to_predict = True
+
+        rows.append([
+            scenario_id, object_id, object_type, 
+            valid_past, valid_future, valid_current, to_predict, interactions_count
+        ])
+    return rows
+
+
 def decode_tracks_from_proto(tracks):
     track_infos = {
         'object_id': [],  # {0: unset, 1: vehicle, 2: pedestrian, 3: cyclist, 4: others}
@@ -169,7 +272,7 @@ def decode_dynamic_map_states_from_proto(dynamic_map_states):
 def process_waymo_data_with_scenario_proto(data_file, output_path=None):
     dataset = tf.data.TFRecordDataset(data_file, compression_type='')
     ret_infos = []
-    # df_rows=[]
+    df_rows=[]
     for cnt, data in enumerate(dataset):
         info = {}
         scenario = scenario_pb2.Scenario()
@@ -188,7 +291,6 @@ def process_waymo_data_with_scenario_proto(data_file, output_path=None):
             'track_index': [cur_pred.track_index for cur_pred in scenario.tracks_to_predict],
             'difficulty': [cur_pred.difficulty for cur_pred in scenario.tracks_to_predict]
         }  # for training: suggestion of objects to train on, for val/test: need to be predicted
- 
         
         info['tracks_to_predict']['object_type'] = [track_infos['object_type'][cur_idx] for cur_idx in info['tracks_to_predict']['track_index']]
         
@@ -197,6 +299,11 @@ def process_waymo_data_with_scenario_proto(data_file, output_path=None):
         dynamic_map_infos = decode_dynamic_map_states_from_proto(scenario.dynamic_map_states)
 
 
+        # code to create a dataframe to find data stats
+        ego_polylines = [track_infos['trajs'][i][:,:2] for i in info['tracks_to_predict']['track_index']]
+        interactions_count = count_polyline_intersections_unique(ego_polylines)
+        df_rows += populate_dataframe(info, track_infos,interactions_count)
+
         save_infos = {
             'track_infos': track_infos,
             'dynamic_map_infos': dynamic_map_infos,
@@ -204,13 +311,15 @@ def process_waymo_data_with_scenario_proto(data_file, output_path=None):
         }
         save_infos.update(info)
 
-        output_file = os.path.join(output_path, f'sample_{scenario.scenario_id}.pkl')
-        with open(output_file, 'wb') as f:
-            pickle.dump(save_infos, f)
+        # output_file = os.path.join(output_path, f'sample_{scenario.scenario_id}.pkl')
+        # with open(output_file, 'wb') as f:
+        #     pickle.dump(save_infos, f)
 
 
         ret_infos.append(info)
-    return  ret_infos
+
+    # return  ret_infos
+    return df_rows, ret_infos
 
 
 def get_infos_from_protos(data_path, output_path=None, num_workers=8):
@@ -225,14 +334,22 @@ def get_infos_from_protos(data_path, output_path=None, num_workers=8):
     src_files = glob.glob(os.path.join(data_path, '*.tfrecord*'))
     src_files.sort()
 
+
     # func(src_files[0])
+    # with multiprocessing.Pool(num_workers) as p:
+        # data_infos = list(tqdm(p.imap(func, src_files), total=len(src_files)))
+    # all_infos = [item for infos in data_infos for item in infos]
+    # return  all_infos
 
+    all_df_rows= []
+    all_infos = []
     with multiprocessing.Pool(num_workers) as p:
-        data_infos = list(tqdm(p.imap(func, src_files), total=len(src_files)))
- 
-    all_infos = [item for infos in data_infos for item in infos]
+        for df_rows, data_infos in tqdm(p.imap(func, src_files), total=len(src_files)):
+            all_df_rows.extend(df_rows)
+            all_infos.extend(data_infos)
 
-    return  all_infos
+    return all_df_rows, all_infos
+
 
 
 def create_infos_from_protos(raw_data_path, output_path, num_workers=1):
@@ -256,17 +373,24 @@ def create_infos_from_protos(raw_data_path, output_path, num_workers=1):
     #     pickle.dump(val_infos, f)
     # print('----------------Waymo info val file is saved to %s----------------' % val_filename)
     
-    debug_infos = get_infos_from_protos(
+    df_rows, debug_infos = get_infos_from_protos(
         data_path=os.path.join(raw_data_path, 'validation'),
         output_path=os.path.join(output_path, 'processed_scenarios_validation'),
         num_workers=num_workers
     )
-    debug_filename = os.path.join(output_path, 'processed_scenarios_val_infos.pkl')
-   
-    with open(debug_filename, 'wb') as f:
-        pickle.dump(debug_infos, f)
-    print('----------------Waymo info debug file is saved to %s----------------' % debug_filename)
+    
+    # debug_filename = os.path.join(output_path, 'processed_scenarios_val_infos.pkl')
+    # with open(debug_filename, 'wb') as f:
+    #     pickle.dump(debug_infos, f)
+    # print('----------------Waymo info debug file is saved to %s----------------' % debug_filename)
 
+    df = pd.DataFrame(df_rows, columns=[
+    'scenario', 'agnet_id', 'object_type',
+    'past_valid_stamps', 'future_valid_stamps',
+    'current_valid_timestamp', 'to_predict', 'interactions_count'
+    ])
+    df.to_csv(os.path.join(output_path, 'processed_scenarios_validation.csv'), index=False) 
+   
 
 if __name__ == '__main__':
     create_infos_from_protos(

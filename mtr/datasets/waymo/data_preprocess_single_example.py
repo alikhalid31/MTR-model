@@ -14,6 +14,7 @@ from tqdm import tqdm
 from waymo_open_dataset.protos import scenario_pb2
 from waymo_types import object_type, lane_type, road_line_type, road_edge_type, signal_state, polyline_type
 
+
 def decode_tracks_from_proto(tracks):
     track_infos = {
         'object_id': [],  # {0: unset, 1: vehicle, 2: pedestrian, 3: cyclist, 4: others}
@@ -169,47 +170,50 @@ def decode_dynamic_map_states_from_proto(dynamic_map_states):
 def process_waymo_data_with_scenario_proto(data_file, output_path=None):
     dataset = tf.data.TFRecordDataset(data_file, compression_type='')
     ret_infos = []
-    # df_rows=[]
     for cnt, data in enumerate(dataset):
         info = {}
         scenario = scenario_pb2.Scenario()
         # scenario.ParseFromString(bytearray(data.numpy()))
         scenario.ParseFromString(bytes(data.numpy()))
 
-        info['scenario_id'] = scenario.scenario_id
-        info['timestamps_seconds'] = list(scenario.timestamps_seconds)  # list of int of shape (91)
-        info['current_time_index'] = scenario.current_time_index  # int, 10
-        info['sdc_track_index'] = scenario.sdc_track_index  # int
-        info['objects_of_interest'] = list(scenario.objects_of_interest)  # list, could be empty list
-
-        track_infos = decode_tracks_from_proto(scenario.tracks)
-
-        info['tracks_to_predict'] = {
-            'track_index': [cur_pred.track_index for cur_pred in scenario.tracks_to_predict],
-            'difficulty': [cur_pred.difficulty for cur_pred in scenario.tracks_to_predict]
-        }  # for training: suggestion of objects to train on, for val/test: need to be predicted
- 
-        
-        info['tracks_to_predict']['object_type'] = [track_infos['object_type'][cur_idx] for cur_idx in info['tracks_to_predict']['track_index']]
-        
-        # decode map related data
-        map_infos = decode_map_features_from_proto(scenario.map_features)
-        dynamic_map_infos = decode_dynamic_map_states_from_proto(scenario.dynamic_map_states)
+        if scenario.scenario_id == 'f3732afc22c7590c': # debuging single example with 196 agents
 
 
-        save_infos = {
-            'track_infos': track_infos,
-            'dynamic_map_infos': dynamic_map_infos,
-            'map_infos': map_infos
-        }
-        save_infos.update(info)
+            info['scenario_id'] = scenario.scenario_id
+            info['timestamps_seconds'] = list(scenario.timestamps_seconds)  # list of int of shape (91)
+            info['current_time_index'] = scenario.current_time_index  # int, 10
+            info['sdc_track_index'] = scenario.sdc_track_index  # int
+            info['objects_of_interest'] = list(scenario.objects_of_interest)  # list, could be empty list
 
-        output_file = os.path.join(output_path, f'sample_{scenario.scenario_id}.pkl')
-        with open(output_file, 'wb') as f:
-            pickle.dump(save_infos, f)
+            track_infos = decode_tracks_from_proto(scenario.tracks)
 
 
-        ret_infos.append(info)
+
+            info['tracks_to_predict'] = {
+                'track_index': [cur_pred.track_index for cur_pred in scenario.tracks_to_predict],
+                'difficulty': [cur_pred.difficulty for cur_pred in scenario.tracks_to_predict]
+            }  # for training: suggestion of objects to train on, for val/test: need to be predicted
+
+      
+            info['tracks_to_predict']['object_type'] = [track_infos['object_type'][cur_idx] for cur_idx in info['tracks_to_predict']['track_index']]
+            
+            # decode map related data
+            map_infos = decode_map_features_from_proto(scenario.map_features)
+            dynamic_map_infos = decode_dynamic_map_states_from_proto(scenario.dynamic_map_states)
+
+            save_infos = {
+                'track_infos': track_infos,
+                'dynamic_map_infos': dynamic_map_infos,
+                'map_infos': map_infos
+            }
+            save_infos.update(info)
+
+            output_file = os.path.join(output_path, f'sample_{scenario.scenario_id}.pkl')
+            with open(output_file, 'wb') as f:
+                pickle.dump(save_infos, f)
+
+            ret_infos.append(info)
+
     return  ret_infos
 
 
@@ -225,12 +229,18 @@ def get_infos_from_protos(data_path, output_path=None, num_workers=8):
     src_files = glob.glob(os.path.join(data_path, '*.tfrecord*'))
     src_files.sort()
 
-    # func(src_files[0])
 
+    # func(src_files[0])
+    # all_df_rows= []
+    # all_infos = []
     with multiprocessing.Pool(num_workers) as p:
         data_infos = list(tqdm(p.imap(func, src_files), total=len(src_files)))
- 
+        # for df_rows, data_infos in tqdm(p.imap(func, src_files), total=len(src_files)):
+        #     all_df_rows.extend(df_rows)
+        #     all_infos.extend(data_infos)
+
     all_infos = [item for infos in data_infos for item in infos]
+    # return all_df_rows, all_infos
 
     return  all_infos
 
@@ -258,11 +268,11 @@ def create_infos_from_protos(raw_data_path, output_path, num_workers=1):
     
     debug_infos = get_infos_from_protos(
         data_path=os.path.join(raw_data_path, 'validation'),
-        output_path=os.path.join(output_path, 'processed_scenarios_validation'),
+        output_path=os.path.join(output_path, 'processed_scenarios_validation_single_example'),
         num_workers=num_workers
     )
-    debug_filename = os.path.join(output_path, 'processed_scenarios_val_infos.pkl')
-   
+    debug_filename = os.path.join(output_path, 'processed_scenarios_val_single_example_infos.pkl')
+
     with open(debug_filename, 'wb') as f:
         pickle.dump(debug_infos, f)
     print('----------------Waymo info debug file is saved to %s----------------' % debug_filename)
