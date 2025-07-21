@@ -75,7 +75,7 @@ def eval_single_ckpt(model, test_loader, args, eval_output_dir, logger, epoch_id
     )
 
 
-def eval_single_ckpt_with_sliding_window(model, test_loader, args, eval_output_dir, logger, epoch_id, dist_test=False, window_step_size=1):
+def eval_single_ckpt_with_sliding_window(model, test_loader, args, eval_output_dir, logger, epoch_id, dist_test=False):
     # load checkpoint
     if args.ckpt is not None: 
         it, epoch = model.load_params_from_file(filename=args.ckpt, logger=logger, to_cpu=dist_test)
@@ -86,7 +86,7 @@ def eval_single_ckpt_with_sliding_window(model, test_loader, args, eval_output_d
     logger.info(f'*************** LOAD MODEL (epoch={epoch}, iter={it}) for EVALUATION *****************')
     # start evaluation
     eval_utils.eval_one_epoch_with_sliding_window(
-        cfg, model, test_loader, epoch_id, logger, window_step_size, dist_test=dist_test,
+        cfg, model, test_loader, epoch_id, logger, dist_test=dist_test,
         result_dir=eval_output_dir, save_to_file=args.save_to_file,
     )
 
@@ -221,9 +221,10 @@ def main():
         if args.eval_all:
             repeat_eval_ckpt(model, test_loader, args, eval_output_dir, logger, ckpt_dir, dist_test=dist_test)
         else:
-            # eval_single_ckpt(model, test_loader, args, eval_output_dir, logger, epoch_id, dist_test=dist_test)
-            eval_single_ckpt_with_sliding_window(model, test_loader, args, eval_output_dir, logger, epoch_id, dist_test=dist_test, window_step_size=cfg.SLIDING_WINDOW.SLIDING_WINDOW_STEP)
-
+            if cfg.SLIDING_WINDOW.ENABLE:
+                eval_single_ckpt_with_sliding_window(model, test_loader, args, eval_output_dir, logger, epoch_id, dist_test=dist_test)
+            else:   
+                eval_single_ckpt(model, test_loader, args, eval_output_dir, logger, epoch_id, dist_test=dist_test)
 
 
 if __name__ == '__main__':
