@@ -242,7 +242,7 @@ def transform_preds_to_waymo_format_custom(pred_dicts, top_k_for_eval=-1, eval_s
     if top_k_for_eval != -1:
         topK = min(top_k_for_eval, topK)
 
-    if num_future_frames in [10, 30, 50, 80]:
+    if num_future_frames in [10, 30, 50, 70]:
         sampled_interval = 1
         # sampled_interval = 5
     assert num_future_frames % sampled_interval == 0, f'num_future_frames={num_future_frames}'
