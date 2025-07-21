@@ -290,11 +290,11 @@ def create_infos_from_protos(raw_data_path, output_path, num_workers=1):
     # print('----------------Waymo info val file is saved to %s----------------' % debug_filename)
 
     val_infos = get_infos_from_protos(
-        data_path=os.path.join(raw_data_path, 'validation'),
-        output_path=os.path.join(output_path, 'processed_scenarios_validation_ego_all_valid_timestamps'),
+        data_path=os.path.join(raw_data_path, 'debuging'),
+        output_path=os.path.join(output_path, 'processed_scenarios_debuging_ego_all_valid_timestamps'),
         num_workers=num_workers
     )
-    val_filename = os.path.join(output_path, 'processed_scenarios_val_ego_all_valid_timestamps_infos.pkl')
+    val_filename = os.path.join(output_path, 'processed_scenarios_debuging_ego_all_valid_timestamps_infos.pkl')
     with open(val_filename, 'wb') as f:
         pickle.dump(val_infos, f)
     print('----------------Waymo info val file is saved to %s----------------' % val_filename)
