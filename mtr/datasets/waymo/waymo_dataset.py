@@ -66,7 +66,7 @@ class WaymoDataset(DatasetTemplate):
     def __len__(self):
         if self.dataset_cfg.SLIDING_WINDOW.ENABLE:
             total_windows = self.dataset_cfg.SLIDING_WINDOW.TOTAL_WINDOWS / self.dataset_cfg.SLIDING_WINDOW.SLIDING_WINDOW_STEP
-            return len(self.infos) * total_windows
+            return len(self.infos) * int(total_windows)
         else:
             return len(self.infos)
 
