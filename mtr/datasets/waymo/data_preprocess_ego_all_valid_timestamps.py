@@ -191,50 +191,52 @@ def process_waymo_data_with_scenario_proto(data_file, output_path=None):
         info = {}
         scenario = scenario_pb2.Scenario()
         scenario.ParseFromString(bytes(data.numpy()))
+        if scenario.scenario_id == '1ab2857fa96dbc1a':
 
-        info['scenario_id'] = scenario.scenario_id
-        info['timestamps_seconds'] = list(scenario.timestamps_seconds)  # list of int of shape (91)
-        # info['current_time_index'] = scenario.current_time_index  # int, 10
-        info['current_time_index'] = 20  # int, 10
-        info['sdc_track_index'] = scenario.sdc_track_index  # int
-        info['objects_of_interest'] = list(scenario.objects_of_interest)  # list, could be empty list
+            info['scenario_id'] = scenario.scenario_id
+            info['timestamps_seconds'] = list(scenario.timestamps_seconds)  # list of int of shape (91)
+            # info['current_time_index'] = scenario.current_time_index  # int, 10
+            info['current_time_index'] = 20  # int, 10
+            info['sdc_track_index'] = scenario.sdc_track_index  # int
+            info['objects_of_interest'] = list(scenario.objects_of_interest)  # list, could be empty list
 
-        info['tracks_to_predict'] = {
-            'track_index': [cur_pred.track_index for cur_pred in scenario.tracks_to_predict]
-        }  # for training: suggestion of objects to train on, for val/test: need to be predicted
+            info['tracks_to_predict'] = {
+                'track_index': [cur_pred.track_index for cur_pred in scenario.tracks_to_predict]
+            }  # for training: suggestion of objects to train on, for val/test: need to be predicted
 
-        track_infos = decode_tracks_from_proto(scenario.tracks)
-        # info['tracks_to_predict']['object_type'] = [track_infos['object_type'][cur_idx] for cur_idx in info['tracks_to_predict']['track_index']]
-        # info['tracks_to_predict']['valid_20s'] = [track_infos['trajs'][cur_idx][info['current_time_index']][-1] for cur_idx in info['tracks_to_predict']['track_index']]
-        # info['tracks_to_predict']['valid_30s'] = [track_infos['trajs'][cur_idx][30][-1] for cur_idx in info['tracks_to_predict']['track_index']]
-        # # print(info['tracks_to_predict']['valid'])
-        # # exit()
+            track_infos = decode_tracks_from_proto(scenario.tracks)
+            # info['tracks_to_predict']['object_type'] = [track_infos['object_type'][cur_idx] for cur_idx in info['tracks_to_predict']['track_index']]
+            # info['tracks_to_predict']['valid_20s'] = [track_infos['trajs'][cur_idx][info['current_time_index']][-1] for cur_idx in info['tracks_to_predict']['track_index']]
+            # info['tracks_to_predict']['valid_30s'] = [track_infos['trajs'][cur_idx][30][-1] for cur_idx in info['tracks_to_predict']['track_index']]
+            # # print(info['tracks_to_predict']['valid'])
+            # # exit()
 
-        center_indices = get_tracks_with_all_valied_timestamps(track_infos, info)
-        
-        info['tracks_to_predict']['track_index'] = center_indices
-        info['tracks_to_predict']['difficulty'] = [cur_pred.difficulty for cur_pred in scenario.tracks_to_predict if cur_pred.track_index in center_indices]
-        info['tracks_to_predict']['object_type'] = [track_infos['object_type'][cur_idx] for cur_idx in info['tracks_to_predict']['track_index']]
-
-
-        # decode map related data
-        map_infos = decode_map_features_from_proto(scenario.map_features)
-        dynamic_map_infos = decode_dynamic_map_states_from_proto(scenario.dynamic_map_states)
-
-        save_infos = {
-            'track_infos': track_infos,
-            'dynamic_map_infos': dynamic_map_infos,
-            'map_infos': map_infos
-        }
-        save_infos.update(info)
-
-        output_file = os.path.join(output_path, f'sample_{scenario.scenario_id}.pkl')
-        with open(output_file, 'wb') as f:
-            pickle.dump(save_infos, f)
-
-        ret_infos.append(info)
+            center_indices = get_tracks_with_all_valied_timestamps(track_infos, info)
+            
+            info['tracks_to_predict']['track_index'] = center_indices
+            info['tracks_to_predict']['difficulty'] = [cur_pred.difficulty for cur_pred in scenario.tracks_to_predict if cur_pred.track_index in center_indices]
+            info['tracks_to_predict']['object_type'] = [track_infos['object_type'][cur_idx] for cur_idx in info['tracks_to_predict']['track_index']]
 
 
+            # decode map related data
+            map_infos = decode_map_features_from_proto(scenario.map_features)
+            dynamic_map_infos = decode_dynamic_map_states_from_proto(scenario.dynamic_map_states)
+
+            save_infos = {
+                'track_infos': track_infos,
+                'dynamic_map_infos': dynamic_map_infos,
+                'map_infos': map_infos
+            }
+            save_infos.update(info)
+
+            output_file = os.path.join(output_path, f'sample_{scenario.scenario_id}.pkl')
+            with open(output_file, 'wb') as f:
+                pickle.dump(save_infos, f)
+
+            ret_infos.append(info)
+            
+
+    print(ret_infos)
     return ret_infos
 
 
@@ -291,10 +293,10 @@ def create_infos_from_protos(raw_data_path, output_path, num_workers=1):
 
     val_infos = get_infos_from_protos(
         data_path=os.path.join(raw_data_path, 'debuging'),
-        output_path=os.path.join(output_path, 'processed_scenarios_debuging_ego_all_valid_timestamps'),
+        output_path=os.path.join(output_path, 'processed_scenarios_debuging_ego_all_valid_timestamps_single_example'),
         num_workers=num_workers
     )
-    val_filename = os.path.join(output_path, 'processed_scenarios_debuging_ego_all_valid_timestamps_infos.pkl')
+    val_filename = os.path.join(output_path, 'processed_scenarios_debuging_ego_all_valid_timestamps_single_example_infos.pkl')
     with open(val_filename, 'wb') as f:
         pickle.dump(val_infos, f)
     print('----------------Waymo info val file is saved to %s----------------' % val_filename)

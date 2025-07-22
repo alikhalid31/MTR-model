@@ -176,7 +176,7 @@ def process_waymo_data_with_scenario_proto(data_file, output_path=None):
         # scenario.ParseFromString(bytearray(data.numpy()))
         scenario.ParseFromString(bytes(data.numpy()))
 
-        if scenario.scenario_id == 'f3732afc22c7590c': # debuging single example with 196 agents
+        if scenario.scenario_id == 'f3732afc22c7590c':
 
 
             info['scenario_id'] = scenario.scenario_id
