@@ -20,7 +20,7 @@ class WaymoDataset(DatasetTemplate):
         super().__init__(dataset_cfg=dataset_cfg, training=training, logger=logger)
         self.data_root = cfg.ROOT_DIR / self.dataset_cfg.DATA_ROOT
         self.data_path = self.data_root / self.dataset_cfg.SPLIT_DIR[self.mode]
-
+        self.current_timestamp = self.dataset_cfg.CURRENT_TIMESTAMP
         self.infos = self.get_all_infos(self.data_root / self.dataset_cfg.INFO_FILE[self.mode])
         self.total_examples = len(self.infos)
 
@@ -65,28 +65,32 @@ class WaymoDataset(DatasetTemplate):
 
     def __len__(self):
         if self.dataset_cfg.SLIDING_WINDOW.ENABLE:
-            total_windows = self.dataset_cfg.SLIDING_WINDOW.TOTAL_WINDOWS / self.dataset_cfg.SLIDING_WINDOW.SLIDING_WINDOW_STEP
-            return len(self.infos) * total_windows
+            # these lines of code allow to get the same example at differnt timestamps
+            # total_windows = self.dataset_cfg.SLIDING_WINDOW.TOTAL_WINDOWS / self.dataset_cfg.SLIDING_WINDOW.SLIDING_WINDOW_STEP
+            # return len(self.infos) * int(total_windows)
+            return len(self.infos) 
         else:
             return len(self.infos)
 
     def __getitem__(self, index):
         if self.dataset_cfg.SLIDING_WINDOW.ENABLE:
-            # sliding window mode
-            base_example_index  = index // self.dataset_cfg.SLIDING_WINDOW.TOTAL_WINDOWS
-            window_index = index % self.dataset_cfg.SLIDING_WINDOW.TOTAL_WINDOWS
 
-            if window_index >= self.dataset_cfg.SLIDING_WINDOW.TOTAL_WINDOWS:
-                raise ValueError(f'window_index {window_index} exceeds the total windows {self.dataset_cfg.SLIDING_WINDOW.TOTAL_WINDOWS}')
+            # # sliding window mode
+            # base_example_index  =int( index // self.dataset_cfg.SLIDING_WINDOW.TOTAL_WINDOWS)
+            # window_index = int(index % self.dataset_cfg.SLIDING_WINDOW.TOTAL_WINDOWS)
 
-            ret_infos = self.create_scene_level_data_sliding_window(base_example_index, window_index)
+            # if window_index >= self.dataset_cfg.SLIDING_WINDOW.TOTAL_WINDOWS:
+            #     raise ValueError(f'window_index {window_index} exceeds the total windows {self.dataset_cfg.SLIDING_WINDOW.TOTAL_WINDOWS}')
+
+            ret_infos = self.create_scene_level_data_sliding_window(index, self.current_timestamp)
+            # ret_infos = self.create_scene_level_data(index)
         else:
             ret_infos = self.create_scene_level_data(index)
 
         return ret_infos
 
 
-    def create_scene_level_data_sliding_window(self, index,timestamp):
+    def create_scene_level_data_sliding_window(self, index, current_timestamp):
         """
         Args:
             index (index):
@@ -100,8 +104,12 @@ class WaymoDataset(DatasetTemplate):
             info = pickle.load(f)
 
         sdc_track_index = info['sdc_track_index']
-        current_time_index = info['current_time_index']
-        timestamps = np.array(info['timestamps_seconds'][:current_time_index + 1], dtype=np.float32)
+        # current_time_index = info['current_time_index'] + timestamp_offset
+        ## the current_time_index is set to 20 during data preprocessing mistakenly. 
+        current_time_index = current_timestamp
+        timestamp_offset = current_timestamp -10
+
+        timestamps = np.array(info['timestamps_seconds'][timestamp_offset:current_time_index + 1], dtype=np.float32)
 
         track_infos = info['track_infos']
 
@@ -109,7 +117,7 @@ class WaymoDataset(DatasetTemplate):
         obj_types = np.array(track_infos['object_type'])
         obj_ids = np.array(track_infos['object_id'])
         obj_trajs_full = track_infos['trajs']  # (num_objects, num_timestamp, 10)
-        obj_trajs_past = obj_trajs_full[:, :current_time_index + 1]
+        obj_trajs_past = obj_trajs_full[:, timestamp_offset:current_time_index + 1]
         obj_trajs_future = obj_trajs_full[:, current_time_index + 1:]
 
         center_objects, track_index_to_predict = self.get_interested_agents(
@@ -180,7 +188,8 @@ class WaymoDataset(DatasetTemplate):
             info = pickle.load(f)
 
         sdc_track_index = info['sdc_track_index']
-        current_time_index = info['current_time_index']
+        # current_time_index = info['current_time_index']
+        current_time_index = 10
         timestamps = np.array(info['timestamps_seconds'][:current_time_index + 1], dtype=np.float32)
 
         track_infos = info['track_infos']
@@ -590,6 +599,10 @@ class WaymoDataset(DatasetTemplate):
         for bs_idx in range(batch_dict['batch_size']):
             cur_scene_pred_list = []
             for obj_idx in range(start_obj_idx, start_obj_idx + batch_sample_count[bs_idx]):
+                # print('here')
+                # print(input_dict['center_gt_trajs'][obj_idx].shape[0])
+                # print(input_dict['center_gt_trajs_src'][obj_idx])
+                # print('here')
                 single_pred_dict = {
                     'scenario_id': input_dict['scenario_id'][obj_idx],
                     'pred_trajs': pred_trajs_world[obj_idx, :, :, 0:2].cpu().numpy(),
@@ -597,8 +610,11 @@ class WaymoDataset(DatasetTemplate):
                     'object_id': input_dict['center_objects_id'][obj_idx],
                     'object_type': input_dict['center_objects_type'][obj_idx],
                     'gt_trajs': input_dict['center_gt_trajs_src'][obj_idx].cpu().numpy(),
+                    'valid_gt': np.array(input_dict['center_gt_trajs'][obj_idx].shape[0]),
                     'track_index_to_predict': input_dict['track_index_to_predict'][obj_idx].cpu().numpy()
                 }
+
+
                 cur_scene_pred_list.append(single_pred_dict)
 
             pred_dict_list.append(cur_scene_pred_list)
@@ -628,6 +644,57 @@ class WaymoDataset(DatasetTemplate):
             raise NotImplementedError
 
         return metric_result_str, metric_results
+
+
+    def evaluation_custom(self, pred_dicts, output_path=None, eval_method='waymo', eval_sec= 8, **kwargs):
+        if eval_method == 'waymo':
+            from .waymo_eval import waymo_evaluation_custom
+            try:
+                num_modes_for_eval = pred_dicts[0][0]['pred_trajs'].shape[0]
+            except:
+                num_modes_for_eval = 6
+                
+
+            mAP, minADE, minFDE, missRate = waymo_evaluation_custom(pred_dicts=pred_dicts, eval_second=eval_sec, num_modes_for_eval=num_modes_for_eval)
+
+            # metric_result_str = '\n'
+            # for key in metric_results:
+            #     metric_results[key] = metric_results[key]
+            #     metric_result_str += '%s: %.4f \n' % (key, metric_results[key])
+            # metric_result_str += '\n'
+            # metric_result_str += result_format_str
+
+        else:
+            raise NotImplementedError
+
+        # return metric_result_str, metric_results
+        return mAP, minADE, minFDE, missRate
+
+
+    def evaluation_sliding_window(self, pred_dicts, output_path=None, eval_method='waymo', eval_sec= 8, current_time_stamp=10, **kwargs):
+        if eval_method == 'waymo':
+            from .waymo_eval import waymo_evaluation_sliding_window
+            try:
+                num_modes_for_eval = pred_dicts[0][0]['pred_trajs'].shape[0]
+            except:
+                num_modes_for_eval = 6
+                
+
+            mAP, minADE, minFDE, missRate = waymo_evaluation_sliding_window(pred_dicts=pred_dicts, eval_second=eval_sec, current_time_stamp=current_time_stamp, num_modes_for_eval=num_modes_for_eval)
+
+            # metric_result_str = '\n'
+            # for key in metric_results:
+            #     metric_results[key] = metric_results[key]
+            #     metric_result_str += '%s: %.4f \n' % (key, metric_results[key])
+            # metric_result_str += '\n'
+            # metric_result_str += result_format_str
+
+        else:
+            raise NotImplementedError
+
+        # return metric_result_str, metric_results
+        return mAP, minADE, minFDE, missRate
+    
 
 
 if __name__ == '__main__':

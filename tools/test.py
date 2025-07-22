@@ -75,7 +75,7 @@ def eval_single_ckpt(model, test_loader, args, eval_output_dir, logger, epoch_id
     )
 
 
-def eval_single_ckpt_with_sliding_window(model, test_loader, args, eval_output_dir, logger, epoch_id, dist_test=False):
+def eval_single_ckpt_with_sliding_window(model, test_loader, args, eval_output_dir, logger, epoch_id, current_time_stamp,  dist_test=False):
     # load checkpoint
     if args.ckpt is not None: 
         it, epoch = model.load_params_from_file(filename=args.ckpt, logger=logger, to_cpu=dist_test)
@@ -86,7 +86,7 @@ def eval_single_ckpt_with_sliding_window(model, test_loader, args, eval_output_d
     logger.info(f'*************** LOAD MODEL (epoch={epoch}, iter={it}) for EVALUATION *****************')
     # start evaluation
     eval_utils.eval_one_epoch_with_sliding_window(
-        cfg, model, test_loader, epoch_id, logger, dist_test=dist_test,
+        cfg, model, test_loader, epoch_id, current_time_stamp, logger, dist_test=dist_test,
         result_dir=eval_output_dir, save_to_file=args.save_to_file,
     )
 
@@ -179,7 +179,7 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     eval_output_dir = output_dir / 'eval'
-
+    
     if not args.eval_all:
         num_list = re.findall(r'\d+', args.ckpt) if args.ckpt is not None else []
         epoch_id = num_list[-1] if num_list.__len__() > 0 else 'no_number'
@@ -211,20 +211,23 @@ def main():
 
     ckpt_dir = args.ckpt_dir if args.ckpt_dir is not None else output_dir / 'ckpt'
 
-    test_set, test_loader, sampler = build_dataloader(
-        dataset_cfg=cfg.DATA_CONFIG,
-        batch_size=args.batch_size,
-        dist=dist_test, workers=args.workers, logger=logger, training=False
-    )
-    model = model_utils.MotionTransformer(config=cfg.MODEL)
-    with torch.no_grad():
-        if args.eval_all:
-            repeat_eval_ckpt(model, test_loader, args, eval_output_dir, logger, ckpt_dir, dist_test=dist_test)
-        else:
-            if cfg.SLIDING_WINDOW.ENABLE:
-                eval_single_ckpt_with_sliding_window(model, test_loader, args, eval_output_dir, logger, epoch_id, dist_test=dist_test)
-            else:   
-                eval_single_ckpt(model, test_loader, args, eval_output_dir, logger, epoch_id, dist_test=dist_test)
+    # leving at least one timestamp to evaluate
+    for timestamp in range(10,90):
+        cfg.DATA_CONFIG.CURRENT_TIMESTAMP = timestamp
+        test_set, test_loader, sampler = build_dataloader(
+            dataset_cfg=cfg.DATA_CONFIG,
+            batch_size=args.batch_size,
+            dist=dist_test, workers=args.workers, logger=logger, training=False
+        )
+        model = model_utils.MotionTransformer(config=cfg.MODEL)
+        with torch.no_grad():
+            if args.eval_all:
+                repeat_eval_ckpt(model, test_loader, args, eval_output_dir, logger, ckpt_dir, dist_test=dist_test)
+            else:
+                if cfg.DATA_CONFIG.SLIDING_WINDOW.ENABLE:
+                    eval_single_ckpt_with_sliding_window(model, test_loader, args, eval_output_dir, logger, epoch_id, timestamp,  dist_test=dist_test)
+                else:   
+                    eval_single_ckpt(model, test_loader, args, eval_output_dir, logger, epoch_id, dist_test=dist_test)
 
 
 if __name__ == '__main__':
