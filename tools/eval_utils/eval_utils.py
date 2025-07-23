@@ -9,7 +9,7 @@ import time
 import numpy as np
 import torch
 import tqdm
-
+import json
 from mtr.utils import common_utils
 
 
@@ -90,7 +90,7 @@ def eval_one_epoch(cfg, model, dataloader, epoch_id, logger, dist_test=False, sa
 
     return ret_dict
 
-def eval_one_epoch_with_sliding_window(cfg, model, dataloader, epoch_id, logger, dist_test=False, save_to_file=False, result_dir=None, logger_iter_interval=50):
+def eval_one_epoch_with_sliding_window(cfg, model, dataloader, epoch_id, current_time_stamp, logger, dist_test=False, save_to_file=False, result_dir=None, logger_iter_interval=50):
     result_dir.mkdir(parents=True, exist_ok=True)
 
     final_output_dir = result_dir / 'final_result' / 'data'
@@ -117,25 +117,34 @@ def eval_one_epoch_with_sliding_window(cfg, model, dataloader, epoch_id, logger,
 
     pred_dicts = []
     for i, batch_dict in enumerate(dataloader):
-        print(batch_dict)
-        # with torch.no_grad():
-        #     batch_pred_dicts = model(batch_dict)
-        #     final_pred_dicts = dataset.generate_prediction_dicts(batch_pred_dicts, output_path=final_output_dir if save_to_file else None)
-        #     pred_dicts += final_pred_dicts
+        # print(i, batch_dict['input_dict']['center_gt_trajs'].shape)
 
-        # disp_dict = {}
+        # if i > 1:
+        #     break
+        
+        with torch.no_grad():
+            batch_pred_dicts = model(batch_dict)
+            final_pred_dicts = dataset.generate_prediction_dicts(batch_pred_dicts, output_path=final_output_dir if save_to_file else None)
+            pred_dicts += final_pred_dicts
 
-        # if cfg.LOCAL_RANK == 0 and (i % logger_iter_interval == 0 or i == 0 or i + 1== len(dataloader)):
-        #     past_time = progress_bar.format_dict['elapsed']
-        #     second_each_iter = past_time / max(i, 1.0)
-        #     remaining_time = second_each_iter * (len(dataloader) - i)
-        #     disp_str = ', '.join([f'{key}={val:.3f}' for key, val in disp_dict.items() if key != 'lr'])
-        #     batch_size = batch_dict.get('batch_size', None)
-        #     logger.info(f'eval: epoch={epoch_id}, batch_iter={i}/{len(dataloader)}, batch_size={batch_size}, iter_cost={second_each_iter:.2f}s, '
-        #                 f'time_cost: {progress_bar.format_interval(past_time)}/{progress_bar.format_interval(remaining_time)}, '
-        #                 f'{disp_str}')
 
-    exit()
+            # for key, value_list in final_pred_dicts[0][0].items():
+            #         print(f"{key}: {value_list.shape}")
+
+        
+
+        disp_dict = {}
+
+        if cfg.LOCAL_RANK == 0 and (i % logger_iter_interval == 0 or i == 0 or i + 1== len(dataloader)):
+            past_time = progress_bar.format_dict['elapsed']
+            second_each_iter = past_time / max(i, 1.0)
+            remaining_time = second_each_iter * (len(dataloader) - i)
+            disp_str = ', '.join([f'{key}={val:.3f}' for key, val in disp_dict.items() if key != 'lr'])
+            batch_size = batch_dict.get('batch_size', None)
+            logger.info(f'eval: epoch={epoch_id}, batch_iter={i}/{len(dataloader)}, batch_size={batch_size}, iter_cost={second_each_iter:.2f}s, '
+                        f'time_cost: {progress_bar.format_interval(past_time)}/{progress_bar.format_interval(remaining_time)}, '
+                        f'{disp_str}')
+            
     if cfg.LOCAL_RANK == 0:
         progress_bar.close()
 
@@ -156,16 +165,31 @@ def eval_one_epoch_with_sliding_window(cfg, model, dataloader, epoch_id, logger,
     with open(result_dir / 'result.pkl', 'wb') as f:
         pickle.dump(pred_dicts, f)
 
-    result_str, result_dict = dataset.evaluation(
+    mAP, minADE, minFDE, missRate = dataset.evaluation_sliding_window(
         pred_dicts,
         output_path=final_output_dir, 
+        eval_sec=3, current_time_stamp=current_time_stamp
     )
+    logger.info('****************Evaluation for T=3.*****************')
+    data = {
+    'minADE': minADE,
+    'minFDE': minFDE,
+    'mAP': mAP,
+    'missRate': missRate
+    }
+    with open(result_dir / f'sliding_window_results_mode_6_timestamp_variable_{current_time_stamp}.json', 'w') as f:
+        json.dump(data, f, indent=2)
 
-    logger.info(result_str)
-    ret_dict.update(result_dict)
+    # result_str, result_dict = dataset.evaluation(
+    #     pred_dicts,
+    #     output_path=final_output_dir, 
+    # )
 
-    logger.info('Result is save to %s' % result_dir)
-    logger.info('****************Evaluation done.*****************')
+    # logger.info(result_str)
+    # ret_dict.update(result_dict)
+
+    # logger.info('Result is save to %s' % result_dir)
+    # logger.info('****************Evaluation done.*****************')
 
     return ret_dict
 
