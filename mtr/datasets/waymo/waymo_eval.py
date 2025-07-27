@@ -675,8 +675,7 @@ def transform_preds_to_waymo_format_sliding_window(pred_dicts, top_k_for_eval=-1
     object_id = np.zeros((num_scenario, num_max_objs_per_scene), dtype=np.int)
     scenario_id = np.zeros((num_scenario), dtype=np.object)
 
-    # print('ground truth shape', gt_trajs.shape)
-    # print('prediction shape', batch_pred_trajs.shape)
+    
 
 
     object_type_cnt_dict = {}
@@ -704,6 +703,17 @@ def transform_preds_to_waymo_format_sliding_window(pred_dicts, top_k_for_eval=-1
 
             object_type_cnt_dict[cur_pred['object_type']] += 1
 
+            # print(cur_pred['pred_trajs'].shape)
+            # print(gt_trajs[:,:, 11:, :2].shape)
+            # print(batch_pred_trajs.shape)
+
+            # print(cur_pred['pred_trajs'][:,-1,:])
+            # print(cur_pred['gt_trajs'][ -1, :2])
+            # print(batch_pred_trajs)
+
+
+        # break
+
     gt_infos = {
         'scenario_id': scenario_id.tolist(),
         'object_id': object_id.tolist(),
@@ -717,18 +727,24 @@ def transform_preds_to_waymo_format_sliding_window(pred_dicts, top_k_for_eval=-1
 
 def waymo_evaluation_sliding_window(pred_dicts, top_k=-1, eval_second=8, current_time_stamp=10, num_modes_for_eval=6):
 
+    # print("here")
 
     pred_score, pred_trajectory, gt_infos, object_type_cnt_dict  = transform_preds_to_waymo_format_sliding_window(
         pred_dicts, top_k_for_eval=top_k, eval_second=eval_second,
     )
 
+    # print("here2")
+
     minADE=[]
     minFDE=[]
     mAP=[]
     missRate=[]
+    # with tf.device('/GPU:0'):
     for i in range(0,   90-current_time_stamp):
+        # break
 
         eval_config = _default_metrics_config_sliding_window(eval_second=eval_second, num_modes_for_eval=num_modes_for_eval, measurement_step=i, frams_to_track=90-current_time_stamp)
+        # print("here3")  
 
         pred_score = tf.convert_to_tensor(pred_score, np.float32)
         pred_trajs = tf.convert_to_tensor(pred_trajectory, np.float32)
@@ -742,6 +758,8 @@ def waymo_evaluation_sliding_window(pred_dicts, top_k=-1, eval_second=8, current
 
         # exit()
 
+        # print("here3")  
+
         metric_results = py_metrics_ops.motion_metrics(
             config=eval_config.SerializeToString(),
             prediction_trajectory=pred_trajs,  # (batch_size, num_pred_groups, top_k, num_agents_per_group, num_pred_steps, )
@@ -753,9 +771,11 @@ def waymo_evaluation_sliding_window(pred_dicts, top_k=-1, eval_second=8, current
             object_type=object_type  # (batch_size, num_total_agents)
         )
 
+        # print("here4")
         metric_names = config_util.get_breakdown_names_from_motion_config(eval_config)
         # print('metric_names:', metric_names)
 
+        # print("here5")
         result_dict = {}
         avg_results = {}
         for i, m in enumerate(['minADE', 'minFDE', 'MissRate', 'OverlapRate', 'mAP']):

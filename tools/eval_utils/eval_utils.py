@@ -56,6 +56,8 @@ def eval_one_epoch(cfg, model, dataloader, epoch_id, logger, dist_test=False, sa
             logger.info(f'eval: epoch={epoch_id}, batch_iter={i}/{len(dataloader)}, batch_size={batch_size}, iter_cost={second_each_iter:.2f}s, '
                         f'time_cost: {progress_bar.format_interval(past_time)}/{progress_bar.format_interval(remaining_time)}, '
                         f'{disp_str}')
+        
+        
 
     if cfg.LOCAL_RANK == 0:
         progress_bar.close()
@@ -115,13 +117,23 @@ def eval_one_epoch_with_sliding_window(cfg, model, dataloader, epoch_id, current
         progress_bar = tqdm.tqdm(total=len(dataloader), leave=True, desc='eval', dynamic_ncols=True)
     start_time = time.time()
 
+    count = 0 
     pred_dicts = []
     for i, batch_dict in enumerate(dataloader):
-        # print(i, batch_dict['input_dict']['center_gt_trajs'].shape)
 
-        # if i > 1:
-        #     break
-        
+        if len(batch_dict['input_dict']['track_index_to_predict']) != 1:
+            continue
+
+        else:
+            count += 1
+            if count < 2:
+                continue     
+
+        # if i <20:
+        #     continue
+        # batch_dict['input_dict']['track_index_to_predict'] =batch_dict['input_dict']['track_index_to_predict'][:1]
+        # print(i, batch_dict['input_dict']['track_index_to_predict'])
+
         with torch.no_grad():
             batch_pred_dicts = model(batch_dict)
             final_pred_dicts = dataset.generate_prediction_dicts(batch_pred_dicts, output_path=final_output_dir if save_to_file else None)
@@ -144,6 +156,8 @@ def eval_one_epoch_with_sliding_window(cfg, model, dataloader, epoch_id, current
             logger.info(f'eval: epoch={epoch_id}, batch_iter={i}/{len(dataloader)}, batch_size={batch_size}, iter_cost={second_each_iter:.2f}s, '
                         f'time_cost: {progress_bar.format_interval(past_time)}/{progress_bar.format_interval(remaining_time)}, '
                         f'{disp_str}')
+    
+        break
             
     if cfg.LOCAL_RANK == 0:
         progress_bar.close()
@@ -151,7 +165,9 @@ def eval_one_epoch_with_sliding_window(cfg, model, dataloader, epoch_id, current
     if dist_test:
         logger.info(f'Total number of samples before merging from multiple GPUs: {len(pred_dicts)}')
         pred_dicts = common_utils.merge_results_dist(pred_dicts, len(dataset), tmpdir=result_dir / 'tmpdir')
-        logger.info(f'Total number of samples after merging from multiple GPUs (removing duplicate): {len(pred_dicts)}')
+        if cfg.LOCAL_RANK == 0 and pred_dicts is not None:
+            logger.info(f'Total number of samples after merging from multiple GPUs (removing duplicate): {len(pred_dicts)}')
+
 
     logger.info('*************** Performance of EPOCH %s *****************' % epoch_id)
     sec_per_example = (time.time() - start_time) / len(dataloader.dataset)
