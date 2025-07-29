@@ -136,8 +136,12 @@ def eval_one_epoch_with_sliding_window(cfg, model, dataloader, epoch_id, current
 
         with torch.no_grad():
             batch_pred_dicts = model(batch_dict)
+            print(batch_pred_dicts['pred_scores'])
             final_pred_dicts = dataset.generate_prediction_dicts(batch_pred_dicts, output_path=final_output_dir if save_to_file else None)
+
+            print(final_pred_dicts[0][0]['pred_scores'])
             pred_dicts += final_pred_dicts
+            # exit()
 
 
             # for key, value_list in final_pred_dicts[0][0].items():
@@ -178,8 +182,8 @@ def eval_one_epoch_with_sliding_window(cfg, model, dataloader, epoch_id, current
 
     ret_dict = {}
 
-    with open(result_dir / 'result.pkl', 'wb') as f:
-        pickle.dump(pred_dicts, f)
+    # with open(result_dir / 'result.pkl', 'wb') as f:
+    #     pickle.dump(pred_dicts, f)
 
     mAP, minADE, minFDE, missRate = dataset.evaluation_sliding_window(
         pred_dicts,

@@ -686,8 +686,11 @@ def transform_preds_to_waymo_format_sliding_window(pred_dicts, top_k_for_eval=-1
         cur_scenario_id, preds_per_scene = val
         scenario_id[scene_idx] = cur_scenario_id
         for obj_idx, cur_pred in enumerate(preds_per_scene):
+            print(cur_pred['pred_scores'])   
+
             sort_idxs = cur_pred['pred_scores'].argsort()[::-1]
             cur_pred['pred_scores'] = cur_pred['pred_scores'][sort_idxs]
+            print('after sort:', cur_pred['pred_scores'])
             cur_pred['pred_trajs'] = cur_pred['pred_trajs'][sort_idxs]
 
             cur_pred['pred_scores'] = cur_pred['pred_scores'] / cur_pred['pred_scores'].sum()
@@ -706,7 +709,9 @@ def transform_preds_to_waymo_format_sliding_window(pred_dicts, top_k_for_eval=-1
             # print(cur_pred['pred_trajs'].shape)
             # print(gt_trajs[:,:, 11:, :2].shape)
             # print(batch_pred_trajs.shape)
-
+            print(cur_pred['pred_scores'])   
+            print(batch_pred_scores)
+            exit()
             # print(cur_pred['pred_trajs'][:,-1,:])
             # print(cur_pred['gt_trajs'][ -1, :2])
             # print(batch_pred_trajs)
