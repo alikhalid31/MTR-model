@@ -600,7 +600,7 @@ def waymo_evaluation_custom(pred_dicts, top_k=-1, eval_second=8, num_modes_for_e
     return mAP, minADE, minFDE, missRate
 
 
-def transform_preds_to_waymo_format_sliding_window(pred_dicts, top_k_for_eval=-1, eval_second=8):
+def transform_preds_to_waymo_format_sliding_window(pred_dicts, top_k_for_eval=-1, eval_second=8, current_time_stamp=10):
     print(f'Total number for evaluation (intput): {len(pred_dicts)}')
     temp_pred_dicts = []
     for k in range(len(pred_dicts)):
@@ -626,20 +626,19 @@ def transform_preds_to_waymo_format_sliding_window(pred_dicts, top_k_for_eval=-1
     #     print(f"{key}: {value_list.shape}")
 
     valid_gt = pred_dicts[0]['valid_gt']
-    # print(valid_gt)
 
-    # exit()
 
 
 
     if top_k_for_eval != -1:
         topK = min(top_k_for_eval, topK)
 
-    if num_future_frames in [10, 30, 50, 70, 80]:
-        sampled_interval = 1
+    sampled_interval = 1
+    # if num_future_frames in [10, 30, 50, 70, 80]:
+    #     sampled_interval = 1
         # sampled_interval = 5
     assert num_future_frames % sampled_interval == 0, f'num_future_frames={num_future_frames}'
-    num_frame_to_eval = num_future_frames // sampled_interval
+    # num_frame_to_eval = num_future_frames // sampled_interval
 
     # if eval_second == 1:
     #     num_frames_in_total = 31
@@ -661,12 +660,33 @@ def transform_preds_to_waymo_format_sliding_window(pred_dicts, top_k_for_eval=-1
     #     num_frames_in_total = 91
     #     num_frame_to_eval = 70
 
-    num_frames_in_total = valid_gt+11
-    num_frame_to_eval = valid_gt
-    max_gt_frames=91
+    if num_future_frames==80:
+        num_frames_in_total = valid_gt+11
+        num_frame_to_eval = valid_gt
+        max_gt_frames=91
+
+    elif num_future_frames==70:
+        if current_time_stamp >=20:
+            num_frames_in_total = valid_gt+11
+            num_frame_to_eval = valid_gt
+            max_gt_frames=91
+        else:
+            # remove the gt above 70 as prediction are only 70
+            valid_gt = 70
+    
+            num_frames_in_total = valid_gt+11
+            num_frame_to_eval = valid_gt
+            max_gt_frames=91 - (20 - current_time_stamp)
+
+            # print('start index', max_gt_frames-num_frames_in_total)
+            # print('end index: ', max_gt_frames)
+
+            # exit()
+
    
     batch_pred_trajs = np.zeros((num_scenario, num_max_objs_per_scene, topK, 1, num_frame_to_eval, 2))
     batch_pred_scores = np.zeros((num_scenario, num_max_objs_per_scene, topK))
+    batch_pred_scores_wo_normalization = np.zeros((num_scenario, num_max_objs_per_scene, topK))
     gt_trajs = np.zeros((num_scenario, num_max_objs_per_scene, num_frames_in_total, 7))
     gt_is_valid = np.zeros((num_scenario, num_max_objs_per_scene, num_frames_in_total), dtype=np.int)
     pred_gt_idxs = np.zeros((num_scenario, num_max_objs_per_scene, 1))
@@ -674,6 +694,7 @@ def transform_preds_to_waymo_format_sliding_window(pred_dicts, top_k_for_eval=-1
     object_type = np.zeros((num_scenario, num_max_objs_per_scene), dtype=np.object)
     object_id = np.zeros((num_scenario, num_max_objs_per_scene), dtype=np.int)
     scenario_id = np.zeros((num_scenario), dtype=np.object)
+
 
     
 
@@ -686,12 +707,14 @@ def transform_preds_to_waymo_format_sliding_window(pred_dicts, top_k_for_eval=-1
         cur_scenario_id, preds_per_scene = val
         scenario_id[scene_idx] = cur_scenario_id
         for obj_idx, cur_pred in enumerate(preds_per_scene):
-            print(cur_pred['pred_scores'])   
+            # print(cur_pred['pred_scores'])   
 
             sort_idxs = cur_pred['pred_scores'].argsort()[::-1]
             cur_pred['pred_scores'] = cur_pred['pred_scores'][sort_idxs]
-            print('after sort:', cur_pred['pred_scores'])
+            # print('after sort:', cur_pred['pred_scores'])
             cur_pred['pred_trajs'] = cur_pred['pred_trajs'][sort_idxs]
+
+            batch_pred_scores_wo_normalization[scene_idx, obj_idx] = cur_pred['pred_scores'][:topK]
 
             cur_pred['pred_scores'] = cur_pred['pred_scores'] / cur_pred['pred_scores'].sum()
             # batch_pred_trajs[scene_idx, obj_idx] = cur_pred['pred_trajs'][:topK, np.newaxis, 4::sampled_interval, :][:, :, :num_frame_to_eval, :]
@@ -709,9 +732,9 @@ def transform_preds_to_waymo_format_sliding_window(pred_dicts, top_k_for_eval=-1
             # print(cur_pred['pred_trajs'].shape)
             # print(gt_trajs[:,:, 11:, :2].shape)
             # print(batch_pred_trajs.shape)
-            print(cur_pred['pred_scores'])   
-            print(batch_pred_scores)
-            exit()
+            # print(cur_pred['pred_scores'])   
+            # print(batch_pred_scores)
+            # exit()
             # print(cur_pred['pred_trajs'][:,-1,:])
             # print(cur_pred['gt_trajs'][ -1, :2])
             # print(batch_pred_trajs)
@@ -728,14 +751,15 @@ def transform_preds_to_waymo_format_sliding_window(pred_dicts, top_k_for_eval=-1
         'pred_gt_indices': pred_gt_idxs,
         'pred_gt_indices_mask': pred_gt_idx_valid_mask
     }
-    return batch_pred_scores, batch_pred_trajs, gt_infos, object_type_cnt_dict
+    return batch_pred_scores, batch_pred_trajs, gt_infos, object_type_cnt_dict ,num_future_frames, batch_pred_scores_wo_normalization
+
 
 def waymo_evaluation_sliding_window(pred_dicts, top_k=-1, eval_second=8, current_time_stamp=10, num_modes_for_eval=6):
 
     # print("here")
 
-    pred_score, pred_trajectory, gt_infos, object_type_cnt_dict  = transform_preds_to_waymo_format_sliding_window(
-        pred_dicts, top_k_for_eval=top_k, eval_second=eval_second,
+    pred_score, pred_trajectory, gt_infos, object_type_cnt_dict, num_future_frames, pred_scores_wo_normalization  = transform_preds_to_waymo_format_sliding_window(
+        pred_dicts, top_k_for_eval=top_k, eval_second=eval_second, current_time_stamp=current_time_stamp
     )
 
     # print("here2")
@@ -744,11 +768,35 @@ def waymo_evaluation_sliding_window(pred_dicts, top_k=-1, eval_second=8, current
     minFDE=[]
     mAP=[]
     missRate=[]
-    # with tf.device('/GPU:0'):
-    for i in range(0,   90-current_time_stamp):
-        # break
+    confidenece=[]
 
-        eval_config = _default_metrics_config_sliding_window(eval_second=eval_second, num_modes_for_eval=num_modes_for_eval, measurement_step=i, frams_to_track=90-current_time_stamp)
+    non_zero_mean = pred_scores_wo_normalization[pred_scores_wo_normalization != 0].mean()
+    confidenece.append(non_zero_mean)
+    # print(confidenece)
+    # # with tf.device('/GPU:0'):
+    # # pred_trajectory.shape
+    # print(pred_trajectory.shape)
+
+    # print(pred_scores_wo_normalization.shape)
+    # print(pred_scores_wo_normalization)
+    # exit()
+
+    start = 0 
+    end = 90
+    if num_future_frames==70 and current_time_stamp <20:
+        end = 70+current_time_stamp
+
+
+    for i in range(start,   end-current_time_stamp):
+
+        # break
+        if num_future_frames==70 and current_time_stamp <20:
+            frames_to_track = end
+        else:
+            frames_to_track = end-current_time_stamp
+
+
+        eval_config = _default_metrics_config_sliding_window(eval_second=eval_second, num_modes_for_eval=num_modes_for_eval, measurement_step=i, frams_to_track=end-current_time_stamp)
         # print("here3")  
 
         pred_score = tf.convert_to_tensor(pred_score, np.float32)
@@ -801,6 +849,7 @@ def waymo_evaluation_sliding_window(pred_dicts, top_k=-1, eval_second=8, current
         minFDE.append(avg_results['minFDE - VEHICLE'])
         mAP.append(avg_results['mAP - VEHICLE'])
         missRate.append(avg_results['MissRate - VEHICLE'])
+        
 
         # print('avg_results:', avg_results['minADE - VEHICLE'])
         # print('avg_results:', avg_results['minFDE - VEHICLE'])
@@ -840,7 +889,7 @@ def waymo_evaluation_sliding_window(pred_dicts, top_k=-1, eval_second=8, current
         # result_dict['-----Note that this evaluation may have marginal differences with the official Waymo evaluation server-----'] = 0
 
         # return result_dict, result_format_str
-    return mAP, minADE, minFDE, missRate
+    return mAP, minADE, minFDE, missRate, confidenece
 
 
 def main():

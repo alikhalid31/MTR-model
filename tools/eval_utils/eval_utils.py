@@ -121,13 +121,13 @@ def eval_one_epoch_with_sliding_window(cfg, model, dataloader, epoch_id, current
     pred_dicts = []
     for i, batch_dict in enumerate(dataloader):
 
-        if len(batch_dict['input_dict']['track_index_to_predict']) != 1:
-            continue
+        # if len(batch_dict['input_dict']['track_index_to_predict']) != 1:
+        #     continue
 
-        else:
-            count += 1
-            if count < 2:
-                continue     
+        # else:
+        #     count += 1
+        #     if count < 2:
+        #         continue     
 
         # if i <20:
         #     continue
@@ -136,10 +136,10 @@ def eval_one_epoch_with_sliding_window(cfg, model, dataloader, epoch_id, current
 
         with torch.no_grad():
             batch_pred_dicts = model(batch_dict)
-            print(batch_pred_dicts['pred_scores'])
+            # print(batch_pred_dicts['pred_scores'])
             final_pred_dicts = dataset.generate_prediction_dicts(batch_pred_dicts, output_path=final_output_dir if save_to_file else None)
 
-            print(final_pred_dicts[0][0]['pred_scores'])
+            # print(final_pred_dicts[0][0]['pred_scores'])
             pred_dicts += final_pred_dicts
             # exit()
 
@@ -161,7 +161,7 @@ def eval_one_epoch_with_sliding_window(cfg, model, dataloader, epoch_id, current
                         f'time_cost: {progress_bar.format_interval(past_time)}/{progress_bar.format_interval(remaining_time)}, '
                         f'{disp_str}')
     
-        break
+        # break
             
     if cfg.LOCAL_RANK == 0:
         progress_bar.close()
@@ -185,7 +185,7 @@ def eval_one_epoch_with_sliding_window(cfg, model, dataloader, epoch_id, current
     # with open(result_dir / 'result.pkl', 'wb') as f:
     #     pickle.dump(pred_dicts, f)
 
-    mAP, minADE, minFDE, missRate = dataset.evaluation_sliding_window(
+    mAP, minADE, minFDE, missRate, confidence = dataset.evaluation_sliding_window(
         pred_dicts,
         output_path=final_output_dir, 
         eval_sec=3, current_time_stamp=current_time_stamp
@@ -195,7 +195,8 @@ def eval_one_epoch_with_sliding_window(cfg, model, dataloader, epoch_id, current
     'minADE': minADE,
     'minFDE': minFDE,
     'mAP': mAP,
-    'missRate': missRate
+    'missRate': missRate, 
+    'confidence': confidence
     }
     with open(result_dir / f'sliding_window_results_mode_6_timestamp_variable_{current_time_stamp}.json', 'w') as f:
         json.dump(data, f, indent=2)

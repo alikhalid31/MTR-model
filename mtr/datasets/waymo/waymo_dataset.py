@@ -680,7 +680,7 @@ class WaymoDataset(DatasetTemplate):
                 num_modes_for_eval = 6
                 
 
-            mAP, minADE, minFDE, missRate = waymo_evaluation_sliding_window(pred_dicts=pred_dicts, eval_second=eval_sec, current_time_stamp=current_time_stamp, num_modes_for_eval=num_modes_for_eval)
+            mAP, minADE, minFDE, missRate, confidence = waymo_evaluation_sliding_window(pred_dicts=pred_dicts, eval_second=eval_sec, current_time_stamp=current_time_stamp, num_modes_for_eval=num_modes_for_eval)
 
             # metric_result_str = '\n'
             # for key in metric_results:
@@ -693,7 +693,7 @@ class WaymoDataset(DatasetTemplate):
             raise NotImplementedError
 
         # return metric_result_str, metric_results
-        return mAP, minADE, minFDE, missRate
+        return mAP, minADE, minFDE, missRate, confidence
     
 
 
