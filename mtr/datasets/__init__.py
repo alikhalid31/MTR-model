@@ -51,5 +51,4 @@ def build_dataloader(dataset_cfg, batch_size, dist, workers=4,
         drop_last=drop_last, sampler=sampler, timeout=0, 
         worker_init_fn=worker_init_fn_ if add_worker_init_fn and training else None
     )
-
     return dataset, dataloader, sampler

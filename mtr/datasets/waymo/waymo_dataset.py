@@ -23,6 +23,9 @@ class WaymoDataset(DatasetTemplate):
         self.current_timestamp = self.dataset_cfg.CURRENT_TIMESTAMP
         self.infos = self.get_all_infos(self.data_root / self.dataset_cfg.INFO_FILE[self.mode])
         self.total_examples = len(self.infos)
+        self.total_windows = int(self.dataset_cfg.SLIDING_WINDOW.TOTAL_WINDOWS / self.dataset_cfg.SLIDING_WINDOW.SLIDING_WINDOW_STEP)
+        self.step_size = self.dataset_cfg.SLIDING_WINDOW.SLIDING_WINDOW_STEP
+
 
         self.logger.info(f'Total scenes after filters: {len(self.infos)}')
 
@@ -66,23 +69,28 @@ class WaymoDataset(DatasetTemplate):
     def __len__(self):
         if self.dataset_cfg.SLIDING_WINDOW.ENABLE:
             # these lines of code allow to get the same example at differnt timestamps
-            # total_windows = self.dataset_cfg.SLIDING_WINDOW.TOTAL_WINDOWS / self.dataset_cfg.SLIDING_WINDOW.SLIDING_WINDOW_STEP
-            # return len(self.infos) * int(total_windows)
-            return len(self.infos) 
+            # total_windows = int(self.dataset_cfg.SLIDING_WINDOW.TOTAL_WINDOWS / self.dataset_cfg.SLIDING_WINDOW.SLIDING_WINDOW_STEP)
+            return len(self.infos) * (self.total_windows)
+            # return len(self.infos) 
         else:
             return len(self.infos)
 
     def __getitem__(self, index):
         if self.dataset_cfg.SLIDING_WINDOW.ENABLE:
 
-            # # sliding window mode
+            # sliding window mode
             # base_example_index  =int( index // self.dataset_cfg.SLIDING_WINDOW.TOTAL_WINDOWS)
             # window_index = int(index % self.dataset_cfg.SLIDING_WINDOW.TOTAL_WINDOWS)
 
-            # if window_index >= self.dataset_cfg.SLIDING_WINDOW.TOTAL_WINDOWS:
-            #     raise ValueError(f'window_index {window_index} exceeds the total windows {self.dataset_cfg.SLIDING_WINDOW.TOTAL_WINDOWS}')
+            base_example_index  =int( index // self.total_windows)
+            window_index = int(index % self.total_windows)
 
-            ret_infos = self.create_scene_level_data_sliding_window(index, self.current_timestamp)
+            
+
+            if window_index >= self.dataset_cfg.SLIDING_WINDOW.TOTAL_WINDOWS:
+                raise ValueError(f'window_index {window_index} exceeds the total windows {self.dataset_cfg.SLIDING_WINDOW.TOTAL_WINDOWS}')
+
+            ret_infos = self.create_scene_level_data_sliding_window(base_example_index, (window_index+1)*self.step_size)
             # ret_infos = self.create_scene_level_data(index)
         else:
             ret_infos = self.create_scene_level_data(index)
@@ -98,6 +106,7 @@ class WaymoDataset(DatasetTemplate):
         Returns:
 
         """
+        # print(index, current_timestamp)
         info = self.infos[index]
         scene_id = info['scenario_id']
         with open(self.data_path / f'sample_{scene_id}.pkl', 'rb') as f:
@@ -118,7 +127,7 @@ class WaymoDataset(DatasetTemplate):
         obj_ids = np.array(track_infos['object_id'])
         obj_trajs_full = track_infos['trajs']  # (num_objects, num_timestamp, 10)
         obj_trajs_past = obj_trajs_full[:, timestamp_offset:current_time_index + 1]
-        obj_trajs_future = obj_trajs_full[:, current_time_index + 1:]
+        obj_trajs_future = obj_trajs_full[:, current_time_index + 1:current_time_index+31]  # 30 future frames
 
         center_objects, track_index_to_predict = self.get_interested_agents(
             track_index_to_predict=track_index_to_predict,
