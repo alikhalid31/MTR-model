@@ -84,7 +84,7 @@ class WaymoDataset(DatasetTemplate):
 
         sdc_track_index = info['sdc_track_index']
         current_time_index = info['current_time_index']
-        current_time_index = 11
+        current_time_index = 10
         timestamps = np.array(info['timestamps_seconds'][:current_time_index + 1], dtype=np.float32)
 
         track_infos = info['track_infos']
@@ -112,7 +112,7 @@ class WaymoDataset(DatasetTemplate):
             timestamps=timestamps, obj_types=obj_types, obj_ids=obj_ids
         )
 
-        print(obj_trajs_data.shape, 'object trajs data shape')
+        # print(obj_trajs_data.shape, 'object trajs data shape')
 
         ret_dict = {
             'scenario_id': np.array([scene_id] * len(track_index_to_predict)),
@@ -179,7 +179,7 @@ class WaymoDataset(DatasetTemplate):
         obj_types = obj_types[valid_past_mask]
         obj_ids = obj_ids[valid_past_mask]
 
-        print(obj_trajs_data.shape, 'object trajs data shape after filtering')
+        # print(obj_trajs_data.shape, 'object trajs data shape after filtering')
 
         valid_index_cnt = valid_past_mask.cumsum(axis=0)
         track_index_to_predict_new = valid_index_cnt[track_index_to_predict] - 1
@@ -332,7 +332,7 @@ class WaymoDataset(DatasetTemplate):
         ret_obj_valid_mask = obj_trajs[:, :, :, -1]  # (num_center_obejcts, num_objects, num_timestamps)  # TODO: CHECK THIS, 20220322
         ret_obj_trajs[ret_obj_valid_mask == 0] = 0
 
-        print('ret_obj_trajs shape:', ret_obj_trajs.shape)
+        # print('ret_obj_trajs shape:', ret_obj_trajs.shape)
 
         ##  generate label for future trajectories
         obj_trajs_future = torch.from_numpy(obj_trajs_future).float()
