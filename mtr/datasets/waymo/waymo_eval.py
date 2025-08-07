@@ -6,6 +6,8 @@
 
 import numpy as np
 import tensorflow as tf
+import tensorflow_probability as tfp
+
 import os
 
 from google.protobuf import text_format
@@ -600,6 +602,165 @@ def waymo_evaluation_custom(pred_dicts, top_k=-1, eval_second=8, num_modes_for_e
     return mAP, minADE, minFDE, missRate
 
 
+
+def compute_stats_per_timestep(fde_min, best_scores, final_mask):
+    """
+    Compute statistics (mean, median, std, quartiles) per timestep for valid entries.
+    
+    Args:
+        fde_min: Tensor of shape (B, N, T) — minimum FDE values per batch, object, time
+        final_mask: Boolean Tensor (B, N, T) — mask of valid entries to include
+        
+    Returns:
+        Dict of Tensors each shape (T,): 'mean', 'median', 'std', 'q1', 'q3'
+    """
+    B, N, T = fde_min.shape
+
+    mean_list = []
+    mean_list_scores =[]
+    median_list = []
+    std_list = []
+    q1_list = []
+    q3_list = []
+
+    for t in range(T):
+        # Masked values at timestep t
+        fde_t = tf.boolean_mask(fde_min[:, :, t], final_mask[:, :, t])  # shape (?,)
+        best_scores_t = tf.boolean_mask(best_scores[:, :, t], final_mask[:, :, t])
+        # fde_t = fde_min[:, :, t]
+        if tf.size(fde_t) > 0:
+            mean_list.append(tf.reduce_mean(fde_t))
+            mean_list_scores.append(tf.reduce_mean(best_scores_t))
+            median_list.append(tfp.stats.percentile(fde_t, 50.0))
+            std_list.append(tf.math.reduce_std(fde_t))
+            q1_list.append(tfp.stats.percentile(fde_t, 25.0))
+            q3_list.append(tfp.stats.percentile(fde_t, 75.0))
+        else:
+            # No valid data at this timestep, use NaN as placeholder
+            mean_list.append(tf.constant(float('nan'), dtype=fde_min.dtype))
+            mean_list_scores.append(tf.constant(float('nan'), dtype=fde_min.dtype))
+            median_list.append(tf.constant(float('nan'), dtype=fde_min.dtype))
+            std_list.append(tf.constant(float('nan'), dtype=fde_min.dtype))
+            q1_list.append(tf.constant(float('nan'), dtype=fde_min.dtype))
+            q3_list.append(tf.constant(float('nan'), dtype=fde_min.dtype))
+
+    return {
+        'mean_fde': tf.stack(mean_list),     # shape (T,)
+        'mean_scores': tf.stack(mean_list_scores),     # shape (T,)
+        'median_fde': tf.stack(median_list), # shape (T,)
+        'std_fde': tf.stack(std_list),       # shape (T,)
+        'q1_fde': tf.stack(q1_list),         # shape (T,)
+        'q3_fde': tf.stack(q3_list)          # shape (T,)
+    }
+
+
+def convert_tensors(obj):
+    if isinstance(obj, tf.Tensor):
+        return obj.numpy().tolist() if obj.shape else obj.numpy().item()
+    if isinstance(obj, dict):
+        return {k: convert_tensors(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [convert_tensors(x) for x in obj]
+    return obj
+
+def compute_fde_statistics_tf(pred_trajs, gt_trajs, gt_valid, pred_scores, object_types):
+    """
+    Args:
+        pred_trajs: (B, N, M, 1, T, D)  — predicted trajectories
+        gt_trajs: (B, N, T, 7)          — ground truth trajectories (last dim includes x, y)
+        gt_valid: (B, N, T)             — ground truth validity mask (1 = valid, 0 = invalid)
+        pred_scores: (B, N, M)          — prediction scores for each mode
+        object_types: (B, N)            — type of each object
+    Returns:
+        stats_by_type: Dict of stats for each type: {'mean': [...], 'median': [...], etc.}
+    """
+
+    B, N, M, _, T, D = pred_trajs.shape
+
+    # Only x, y from gt
+    gt_xy = gt_trajs[:, :, 11:, :2]  # (B, N, T, 2)
+    gt_valid = gt_valid[:,:,11:]
+
+    # Expand ground truth for broadcasting
+    gt_xy_exp = tf.expand_dims(gt_xy, axis=2)  # (B, N, 1, T, 2)
+    # print("pred_trajs:", pred_trajs[..., 0, :, :].shape)  # Expect (B, N, M, T, 2)
+    # print("gt_xy_exp:", gt_xy_exp.shape) 
+
+    # Compute L2 distance
+    dist = tf.norm(pred_trajs[..., 0, :, :] - gt_xy_exp, axis=-1)  # (B, N, M, T)
+
+    # Broadcast gt_valid
+    gt_valid_exp = tf.expand_dims(gt_valid, axis=2)  # (B, N, 1, T)
+
+    # Mask invalid timestamps
+    # dist = tf.where(tf.equal(gt_valid_exp, 1), dist, tf.constant(float('inf'), dtype=dist.dtype))
+    # dist = tf.where(gt_valid_exp, dist, tf.constant(float('inf'), dtype=dist.dtype))
+    dist = tf.where(gt_valid_exp, dist, tf.constant(0.0, dtype=dist.dtype))
+
+
+    # Minimum over modes
+    fde_min = tf.reduce_min(dist, axis=2)  # (B, N, T)
+    best_mode = tf.argmin(dist, axis=2)    # (B, N, T)
+
+    # print(pred_scores)
+    # print(best_mode)
+
+    # print(fde_min)
+    # exit()
+
+    # Get score for best mode
+    pred_scores_exp = tf.expand_dims(pred_scores, axis=-1)  # (B, N, M, 1)
+    pred_scores_tiled = tf.tile(pred_scores_exp, [1, 1, 1, T])  # (B, N, M, T)
+
+    # Gather scores for best mode
+    batch_indices = tf.range(B)[:, None, None]
+    obj_indices = tf.range(N)[None, :, None]
+    time_indices = tf.range(T)[None, None, :]
+
+    batch_indices = tf.tile(batch_indices, [1, N, T])  # (B, N, T)
+    obj_indices = tf.tile(obj_indices, [B, 1, T])
+    time_indices = tf.tile(time_indices, [B, N, 1])
+
+    # to stack all must be same unit
+    batch_indices = tf.cast(batch_indices, tf.int32)
+    obj_indices = tf.cast(obj_indices, tf.int32)
+    best_mode = tf.cast(best_mode, tf.int32)
+    time_indices = tf.cast(time_indices, tf.int32)
+
+    indices = tf.stack([batch_indices, obj_indices, best_mode, time_indices], axis=-1)
+    best_scores = tf.gather_nd(pred_scores_tiled, indices)  # (B, N, T)
+
+    # print (best_scores)
+
+    # Mask for valid fde
+    valid_mask = tf.logical_and(gt_valid ,tf.expand_dims(object_types > 0, axis=-1) )  # (B, N, T)
+    
+    # Compute stats by object type
+    stats_by_type = {}
+    # for obj_type in [1, 2, 3, 4]:
+
+    for obj_type in [1]: #1 == vehicle
+        # Mask for current type
+        # Create a mask where object type > 0 → (B, N, 1)
+        type_mask = tf.expand_dims(object_types==obj_type, axis=-1)  # (B, N, 1)
+        # Broadcast it to match gt_valid shape → (B, N, T)
+        type_mask = tf.broadcast_to(type_mask, tf.shape(gt_valid))  # (B, N, T)
+        # Final mask = valid points AND correct object type
+        final_mask = tf.logical_and(gt_valid, type_mask)  # (B, N, T)
+
+        # Filter values
+        # fde_vals = tf.boolean_mask(fde_min, final_mask)
+        # fde_vals = tf.boolean_mask(fde_min, valid_mask)
+
+        stats = compute_stats_per_timestep(fde_min, best_scores, final_mask)
+        stats_by_type[obj_type] = stats
+
+        # print("Stats by type:", stats )
+        # exit()
+
+    return stats_by_type
+
+
 def transform_preds_to_waymo_format_sliding_window(pred_dicts, top_k_for_eval=-1, eval_second=8, current_time_stamp=10):
     print(f'Total number for evaluation (intput): {len(pred_dicts)}')
     temp_pred_dicts = []
@@ -626,6 +787,10 @@ def transform_preds_to_waymo_format_sliding_window(pred_dicts, top_k_for_eval=-1
     #     print(f"{key}: {value_list.shape}")
 
     valid_gt = pred_dicts[0]['valid_gt']
+
+    # print (valid_gt)
+
+    # exit()
 
 
 
@@ -659,6 +824,14 @@ def transform_preds_to_waymo_format_sliding_window(pred_dicts, top_k_for_eval=-1
     # else:
     #     num_frames_in_total = 91
     #     num_frame_to_eval = 70
+
+    if num_future_frames==30:
+        num_frames_in_total = valid_gt+11
+        num_frame_to_eval = valid_gt
+        if current_time_stamp+31 <= 91:
+            max_gt_frames = current_time_stamp + 31
+        else:
+            max_gt_frames = 91
 
     if num_future_frames==80:
         num_frames_in_total = valid_gt+11
@@ -720,8 +893,8 @@ def transform_preds_to_waymo_format_sliding_window(pred_dicts, top_k_for_eval=-1
             # batch_pred_trajs[scene_idx, obj_idx] = cur_pred['pred_trajs'][:topK, np.newaxis, 4::sampled_interval, :][:, :, :num_frame_to_eval, :]
             batch_pred_trajs[scene_idx, obj_idx] = cur_pred['pred_trajs'][:topK, np.newaxis, 0::sampled_interval, :][:, :, :num_frame_to_eval, :]
             batch_pred_scores[scene_idx, obj_idx] = cur_pred['pred_scores'][:topK]
-            gt_trajs[scene_idx, obj_idx] = cur_pred['gt_trajs'][max_gt_frames-num_frames_in_total:max_gt_frames, [0, 1, 3, 4, 6, 7, 8]]  # (num_timestamps_in_total, 10), [cx, cy, cz, dx, dy, dz, heading, vel_x, vel_y, valid]
-            gt_is_valid[scene_idx, obj_idx] = cur_pred['gt_trajs'][max_gt_frames-num_frames_in_total:max_gt_frames, -1]
+            gt_trajs[scene_idx, obj_idx] = cur_pred['gt_trajs'][current_time_stamp-10:max_gt_frames, [0, 1, 3, 4, 6, 7, 8]]  # (num_timestamps_in_total, 10), [cx, cy, cz, dx, dy, dz, heading, vel_x, vel_y, valid]
+            gt_is_valid[scene_idx, obj_idx] = cur_pred['gt_trajs'][current_time_stamp-10:max_gt_frames, -1]
             pred_gt_idxs[scene_idx, obj_idx, 0] = obj_idx
             pred_gt_idx_valid_mask[scene_idx, obj_idx, 0] = 1
             object_type[scene_idx, obj_idx] = object_type_to_id[cur_pred['object_type']]
@@ -770,126 +943,124 @@ def waymo_evaluation_sliding_window(pred_dicts, top_k=-1, eval_second=8, current
     missRate=[]
     confidenece=[]
 
-    non_zero_mean = pred_scores_wo_normalization[pred_scores_wo_normalization != 0].mean()
-    confidenece.append(non_zero_mean)
-    # print(confidenece)
-    # # with tf.device('/GPU:0'):
-    # # pred_trajectory.shape
-    # print(pred_trajectory.shape)
 
-    # print(pred_scores_wo_normalization.shape)
-    # print(pred_scores_wo_normalization)
-    # exit()
-
-    start = 0 
-    end = 90
-    if num_future_frames==70 and current_time_stamp <20:
-        end = 70+current_time_stamp
+    pred_score = tf.convert_to_tensor(pred_score, np.float32)
+    pred_trajs = tf.convert_to_tensor(pred_trajectory, np.float32)
+    gt_trajs = tf.convert_to_tensor(gt_infos['gt_trajectory'], np.float32)
+    gt_is_valid = tf.convert_to_tensor(gt_infos['gt_is_valid'], np.bool)
+    pred_gt_indices = tf.convert_to_tensor(gt_infos['pred_gt_indices'], tf.int64)
+    pred_gt_indices_mask = tf.convert_to_tensor(gt_infos['pred_gt_indices_mask'], np.bool)
+    object_type = tf.convert_to_tensor(gt_infos['object_type'], tf.int64)
 
 
-    for i in range(start,   end-current_time_stamp):
+    # non_zero_mean = pred_scores_wo_normalization[pred_scores_wo_normalization != 0].mean()
+    # confidenece.append(non_zero_mean)
 
-        # break
-        if num_future_frames==70 and current_time_stamp <20:
-            frames_to_track = end
-        else:
-            frames_to_track = end-current_time_stamp
-
-
-        eval_config = _default_metrics_config_sliding_window(eval_second=eval_second, num_modes_for_eval=num_modes_for_eval, measurement_step=i, frams_to_track=end-current_time_stamp)
-        # print("here3")  
-
-        pred_score = tf.convert_to_tensor(pred_score, np.float32)
-        pred_trajs = tf.convert_to_tensor(pred_trajectory, np.float32)
-        gt_trajs = tf.convert_to_tensor(gt_infos['gt_trajectory'], np.float32)
-        gt_is_valid = tf.convert_to_tensor(gt_infos['gt_is_valid'], np.bool)
-        pred_gt_indices = tf.convert_to_tensor(gt_infos['pred_gt_indices'], tf.int64)
-        pred_gt_indices_mask = tf.convert_to_tensor(gt_infos['pred_gt_indices_mask'], np.bool)
-        object_type = tf.convert_to_tensor(gt_infos['object_type'], tf.int64)
-        # print(pred_trajs)
-        # print(gt_trajs[:,:,21:,:2])
-
-        # exit()
-
-        # print("here3")  
-
-        metric_results = py_metrics_ops.motion_metrics(
-            config=eval_config.SerializeToString(),
-            prediction_trajectory=pred_trajs,  # (batch_size, num_pred_groups, top_k, num_agents_per_group, num_pred_steps, )
-            prediction_score=pred_score,  # (batch_size, num_pred_groups, top_k)
-            ground_truth_trajectory=gt_trajs,  # (batch_size, num_total_agents, num_gt_steps, 7)
-            ground_truth_is_valid=gt_is_valid,  # (batch_size, num_total_agents, num_gt_steps)
-            prediction_ground_truth_indices=pred_gt_indices,  # (batch_size, num_pred_groups, num_agents_per_group)
-            prediction_ground_truth_indices_mask=pred_gt_indices_mask,  # (batch_size, num_pred_groups, num_agents_per_group)
-            object_type=object_type  # (batch_size, num_total_agents)
-        )
-
-        # print("here4")
-        metric_names = config_util.get_breakdown_names_from_motion_config(eval_config)
-        # print('metric_names:', metric_names)
-
-        # print("here5")
-        result_dict = {}
-        avg_results = {}
-        for i, m in enumerate(['minADE', 'minFDE', 'MissRate', 'OverlapRate', 'mAP']):
-            avg_results.update({
-                f'{m} - VEHICLE': [0.0, 0], f'{m} - PEDESTRIAN': [0.0, 0], f'{m} - CYCLIST': [0.0, 0]
-            })
-            for j, n in enumerate(metric_names):
-                cur_name = n.split('_')[1]
-                avg_results[f'{m} - {cur_name}'][0] += float(metric_results[i][j])
-                avg_results[f'{m} - {cur_name}'][1] += 1
-                result_dict[f'{m} - {n}\t'] = float(metric_results[i][j])
-
-        for key in avg_results:
-            avg_results[key] = avg_results[key][0] / avg_results[key][1]
-
-        
-        minADE.append(avg_results['minADE - VEHICLE'])
-        minFDE.append(avg_results['minFDE - VEHICLE'])
-        mAP.append(avg_results['mAP - VEHICLE'])
-        missRate.append(avg_results['MissRate - VEHICLE'])
+    # start = 0 
+    # end = 90
+    # if num_future_frames==30:
+    #     if end - current_time_stamp > 30:
+    #         end = 30+current_time_stamp
         
 
-        # print('avg_results:', avg_results['minADE - VEHICLE'])
-        # print('avg_results:', avg_results['minFDE - VEHICLE'])
-        # print('avg_results:', avg_results['MissRate - VEHICLE'])
-        # print('avg_results:', avg_results['OverlapRate - VEHICLE'])
-        # print('avg_results:', avg_results['mAP - VEHICLE'])
-        # result_dict['-------------------------------------------------------------'] = 0
-        # result_dict.update(avg_results)
+    # if num_future_frames==70 and current_time_stamp <20:
+    #     end = 70+current_time_stamp
 
-        # final_avg_results = {}
-        # result_format_list = [
-        #     ['Waymo', 'mAP', 'minADE', 'minFDE', 'MissRate', '\n'],
-        #     ['VEHICLE', None, None, None, None, '\n'],
-        #     ['PEDESTRIAN', None, None, None, None, '\n'],
-        #     ['CYCLIST', None, None, None, None, '\n'],
-        #     ['Avg', None, None, None, None, '\n'],
-        # ]
-        # name_to_row = {'VEHICLE': 1, 'PEDESTRIAN': 2, 'CYCLIST': 3, 'Avg': 4}
-        # name_to_col = {'mAP': 1, 'minADE': 2, 'minFDE': 3, 'MissRate': 4}
 
-        # for cur_metric_name in ['minADE', 'minFDE', 'MissRate', 'mAP']:
-        #     final_avg_results[cur_metric_name] = 0
-        #     for cur_name in ['VEHICLE', 'PEDESTRIAN', 'CYCLIST']:
-        #         final_avg_results[cur_metric_name] += avg_results[f'{cur_metric_name} - {cur_name}']
+    # for i in range(start,   end-current_time_stamp):
 
-        #         result_format_list[name_to_row[cur_name]][name_to_col[cur_metric_name]] = '%.4f,' % avg_results[f'{cur_metric_name} - {cur_name}']
+    #     # break
+    #     if num_future_frames==70 and current_time_stamp <20:
+    #         frames_to_track = end
+    #     else:
+    #         frames_to_track = end-current_time_stamp
 
-        #     final_avg_results[cur_metric_name] /= 3
-        #     result_format_list[4][name_to_col[cur_metric_name]] = '%.4f,' % final_avg_results[cur_metric_name]
 
-        # result_format_str = ' '.join([x.rjust(12) for items in result_format_list for x in items])
+    #     eval_config = _default_metrics_config_sliding_window(eval_second=eval_second, num_modes_for_eval=num_modes_for_eval, measurement_step=i, frams_to_track=end-current_time_stamp)
 
-        # result_dict['--------------------------------------------------------------'] = 0
-        # result_dict.update(final_avg_results)
-        # result_dict['---------------------------------------------------------------'] = 0
-        # result_dict.update(object_type_cnt_dict)
-        # result_dict['-----Note that this evaluation may have marginal differences with the official Waymo evaluation server-----'] = 0
+    #     metric_results = py_metrics_ops.motion_metrics(
+    #         config=eval_config.SerializeToString(),
+    #         prediction_trajectory=pred_trajs,  # (batch_size, num_pred_groups, top_k, num_agents_per_group, num_pred_steps, )
+    #         prediction_score=pred_score,  # (batch_size, num_pred_groups, top_k)
+    #         ground_truth_trajectory=gt_trajs,  # (batch_size, num_total_agents, num_gt_steps, 7)
+    #         ground_truth_is_valid=gt_is_valid,  # (batch_size, num_total_agents, num_gt_steps)
+    #         prediction_ground_truth_indices=pred_gt_indices,  # (batch_size, num_pred_groups, num_agents_per_group)
+    #         prediction_ground_truth_indices_mask=pred_gt_indices_mask,  # (batch_size, num_pred_groups, num_agents_per_group)
+    #         object_type=object_type  # (batch_size, num_total_agents)
+    #     )
 
-        # return result_dict, result_format_str
-    return mAP, minADE, minFDE, missRate, confidenece
+
+    #     metric_names = config_util.get_breakdown_names_from_motion_config(eval_config)
+    #     # print('metric_names:', metric_names)
+
+    #     result_dict = {}
+    #     avg_results = {}
+    #     for i, m in enumerate(['minADE', 'minFDE', 'MissRate', 'OverlapRate', 'mAP']):
+    #         avg_results.update({
+    #             f'{m} - VEHICLE': [0.0, 0], f'{m} - PEDESTRIAN': [0.0, 0], f'{m} - CYCLIST': [0.0, 0]
+    #         })
+    #         for j, n in enumerate(metric_names):
+    #             cur_name = n.split('_')[1]
+    #             avg_results[f'{m} - {cur_name}'][0] += float(metric_results[i][j])
+    #             avg_results[f'{m} - {cur_name}'][1] += 1
+    #             result_dict[f'{m} - {n}\t'] = float(metric_results[i][j])
+
+    #     for key in avg_results:
+    #         avg_results[key] = avg_results[key][0] / avg_results[key][1]
+
+        
+    #     minADE.append(avg_results['minADE - VEHICLE'])
+    #     minFDE.append(avg_results['minFDE - VEHICLE'])
+    #     mAP.append(avg_results['mAP - VEHICLE'])
+    #     missRate.append(avg_results['MissRate - VEHICLE'])
+        
+
+    #     # print('avg_results:', avg_results['minADE - VEHICLE'])
+    #     # print('avg_results:', avg_results['minFDE - VEHICLE'])
+    #     # print('avg_results:', avg_results['MissRate - VEHICLE'])
+    #     # print('avg_results:', avg_results['OverlapRate - VEHICLE'])
+    #     # print('avg_results:', avg_results['mAP - VEHICLE'])
+    #     # result_dict['-------------------------------------------------------------'] = 0
+    #     # result_dict.update(avg_results)
+
+    #     # final_avg_results = {}
+    #     # result_format_list = [
+    #     #     ['Waymo', 'mAP', 'minADE', 'minFDE', 'MissRate', '\n'],
+    #     #     ['VEHICLE', None, None, None, None, '\n'],
+    #     #     ['PEDESTRIAN', None, None, None, None, '\n'],
+    #     #     ['CYCLIST', None, None, None, None, '\n'],
+    #     #     ['Avg', None, None, None, None, '\n'],
+    #     # ]
+    #     # name_to_row = {'VEHICLE': 1, 'PEDESTRIAN': 2, 'CYCLIST': 3, 'Avg': 4}
+    #     # name_to_col = {'mAP': 1, 'minADE': 2, 'minFDE': 3, 'MissRate': 4}
+
+    #     # for cur_metric_name in ['minADE', 'minFDE', 'MissRate', 'mAP']:
+    #     #     final_avg_results[cur_metric_name] = 0
+    #     #     for cur_name in ['VEHICLE', 'PEDESTRIAN', 'CYCLIST']:
+    #     #         final_avg_results[cur_metric_name] += avg_results[f'{cur_metric_name} - {cur_name}']
+
+    #     #         result_format_list[name_to_row[cur_name]][name_to_col[cur_metric_name]] = '%.4f,' % avg_results[f'{cur_metric_name} - {cur_name}']
+
+    #     #     final_avg_results[cur_metric_name] /= 3
+    #     #     result_format_list[4][name_to_col[cur_metric_name]] = '%.4f,' % final_avg_results[cur_metric_name]
+
+    #     # result_format_str = ' '.join([x.rjust(12) for items in result_format_list for x in items])
+
+    #     # result_dict['--------------------------------------------------------------'] = 0
+    #     # result_dict.update(final_avg_results)
+    #     # result_dict['---------------------------------------------------------------'] = 0
+    #     # result_dict.update(object_type_cnt_dict)
+    #     # result_dict['-----Note that this evaluation may have marginal differences with the official Waymo evaluation server-----'] = 0
+
+    #     # return result_dict, result_format_str
+        
+    # print(minFDE)
+    stats= compute_fde_statistics_tf(pred_trajectory, gt_trajs, gt_is_valid, pred_scores_wo_normalization, object_type)
+
+    stats = convert_tensors(stats)  
+
+
+    return mAP, minADE, minFDE, missRate, confidenece, stats
 
 
 def main():

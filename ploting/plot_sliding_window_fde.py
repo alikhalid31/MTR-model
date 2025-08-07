@@ -14,7 +14,7 @@ fde_at_80 = {}
 confidence_at_80 = {}
 
 
-current_timestamp = 81 # The timestamp you are interested in
+current_timestamp = 41 # The timestamp you are interested in
 max_pred_timestamp = 91  # Maximum timestamp index to consider
 # Iterate over all matching files
 for file_path in glob.glob(file_pattern):

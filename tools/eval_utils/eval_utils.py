@@ -5,12 +5,14 @@
 
 import pickle
 import time
+from time import perf_counter
 
 import numpy as np
 import torch
 import tqdm
 import json
 from mtr.utils import common_utils
+
 
 
 def eval_one_epoch(cfg, model, dataloader, epoch_id, logger, dist_test=False, save_to_file=False, result_dir=None, logger_iter_interval=50):
@@ -65,7 +67,8 @@ def eval_one_epoch(cfg, model, dataloader, epoch_id, logger, dist_test=False, sa
     if dist_test:
         logger.info(f'Total number of samples before merging from multiple GPUs: {len(pred_dicts)}')
         pred_dicts = common_utils.merge_results_dist(pred_dicts, len(dataset), tmpdir=result_dir / 'tmpdir')
-        logger.info(f'Total number of samples after merging from multiple GPUs (removing duplicate): {len(pred_dicts)}')
+        if cfg.LOCAL_RANK == 0 and pred_dicts is not None:
+            logger.info(f'Total number of samples after merging from multiple GPUs (removing duplicate): {len(pred_dicts)}')
 
     logger.info('*************** Performance of EPOCH %s *****************' % epoch_id)
     sec_per_example = (time.time() - start_time) / len(dataloader.dataset)
@@ -118,15 +121,18 @@ def eval_one_epoch_with_sliding_window(cfg, model, dataloader, epoch_id, current
     start_time = time.time()
 
     count = 0 
+    forward_times=[]
     pred_dicts = []
+    ego_vehicles=1
     for i, batch_dict in enumerate(dataloader):
 
-        # if len(batch_dict['input_dict']['track_index_to_predict']) != 1:
-        #     continue
+        if len(batch_dict['input_dict']['track_index_to_predict']) != ego_vehicles:
+            continue
+        count+=1
 
         # else:
         #     count += 1
-        #     if count < 2:
+        #     if count < 3:
         #         continue     
 
         # if i <20:
@@ -135,7 +141,12 @@ def eval_one_epoch_with_sliding_window(cfg, model, dataloader, epoch_id, current
         # print(i, batch_dict['input_dict']['track_index_to_predict'])
 
         with torch.no_grad():
+            start_forward = perf_counter()
             batch_pred_dicts = model(batch_dict)
+            end_forward = perf_counter()
+            if count != 1:
+                forward_times.append(end_forward - start_forward) 
+
             # print(batch_pred_dicts['pred_scores'])
             final_pred_dicts = dataset.generate_prediction_dicts(batch_pred_dicts, output_path=final_output_dir if save_to_file else None)
 
@@ -147,7 +158,7 @@ def eval_one_epoch_with_sliding_window(cfg, model, dataloader, epoch_id, current
             # for key, value_list in final_pred_dicts[0][0].items():
             #         print(f"{key}: {value_list.shape}")
 
-        
+        # print(pred_dicts)
 
         disp_dict = {}
 
@@ -162,7 +173,27 @@ def eval_one_epoch_with_sliding_window(cfg, model, dataloader, epoch_id, current
                         f'{disp_str}')
     
         # break
-            
+    
+    inference_time_dict ={}
+    if len(forward_times) > 0:
+        # print(forward_times)
+        forward_times = np.array(forward_times)
+        # Compute statistics
+        mean = np.mean(forward_times)
+        median = np.median(forward_times)
+        q1 = np.percentile(forward_times, 25)
+        q3 = np.percentile(forward_times, 75)
+        logger.info(f'mean forward pass time per batch: {mean:.6f} seconds')
+        logger.info(f'median forward pass time per batch: {median:.6f} seconds')
+        logger.info(f'q1 forward pass time per batch: {q1:.6f} seconds')
+        logger.info(f'q3 forward pass time per batch: {q3:.6f} seconds')
+        logger.info(f'count: {count:.6f} seconds')
+        inference_time_dict['mean'] = [mean]
+        inference_time_dict['median'] = [median]
+        inference_time_dict['q1'] = [q1]
+        inference_time_dict['q3'] = [q3]
+
+
     if cfg.LOCAL_RANK == 0:
         progress_bar.close()
 
@@ -185,22 +216,32 @@ def eval_one_epoch_with_sliding_window(cfg, model, dataloader, epoch_id, current
     # with open(result_dir / 'result.pkl', 'wb') as f:
     #     pickle.dump(pred_dicts, f)
 
-    mAP, minADE, minFDE, missRate, confidence = dataset.evaluation_sliding_window(
-        pred_dicts,
-        output_path=final_output_dir, 
-        eval_sec=3, current_time_stamp=current_time_stamp
-    )
-    logger.info('****************Evaluation for T=3.*****************')
-    data = {
-    'minADE': minADE,
-    'minFDE': minFDE,
-    'mAP': mAP,
-    'missRate': missRate, 
-    'confidence': confidence
-    }
-    with open(result_dir / f'sliding_window_results_mode_6_timestamp_variable_{current_time_stamp}.json', 'w') as f:
-        json.dump(data, f, indent=2)
+    data ={}
+    stats ={}
+    # mAP, minADE, minFDE, missRate, confidence, stats = dataset.evaluation_sliding_window(
+    #     pred_dicts,
+    #     output_path=final_output_dir, 
+    #     eval_sec=3, current_time_stamp=current_time_stamp
+    # )
+    # logger.info('****************Evaluation for T=3.*****************')
+    # data = {
+    # 'minADE': minADE,
+    # 'minFDE': minFDE,
+    # 'mAP': mAP,
+    # 'missRate': missRate, 
+    # 'confidence': confidence
+    # }
 
+    combined_dict = {
+    "waymo_eval": data,
+    "custom_eval": stats, 
+    "infernece_time": inference_time_dict
+}
+    # with open(result_dir / f'sliding_window_results_mode_6_timestamp_variable_{current_time_stamp}.json', 'w') as f:
+    #     json.dump(combined_dict, f, indent=2)
+
+    with open(result_dir / f'sliding_window_results_eg_vehicle_{ego_vehicles}.json', 'w') as f:
+        json.dump(combined_dict, f, indent=2)
     # result_str, result_dict = dataset.evaluation(
     #     pred_dicts,
     #     output_path=final_output_dir, 
