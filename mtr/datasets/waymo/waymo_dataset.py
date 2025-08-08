@@ -21,7 +21,7 @@ class WaymoDataset(DatasetTemplate):
         self.data_root = cfg.ROOT_DIR / self.dataset_cfg.DATA_ROOT
         self.data_path = self.data_root / self.dataset_cfg.SPLIT_DIR[self.mode]
         self.current_timestamp = self.dataset_cfg.CURRENT_TIMESTAMP
-        self.training = self.dataset_cfg.SLIDING_WINDOW.TRAINING 
+        self.training_sliding_window = self.dataset_cfg.SLIDING_WINDOW.TRAINING 
         self.infos = self.get_all_infos(self.data_root / self.dataset_cfg.INFO_FILE[self.mode])
         self.total_examples = len(self.infos)
         self.total_windows = int(self.dataset_cfg.SLIDING_WINDOW.TOTAL_WINDOWS / self.dataset_cfg.SLIDING_WINDOW.SLIDING_WINDOW_STEP)
@@ -68,7 +68,7 @@ class WaymoDataset(DatasetTemplate):
         return ret_infos
 
     def __len__(self):
-        if self.dataset_cfg.SLIDING_WINDOW.ENABLE and self.training:
+        if self.dataset_cfg.SLIDING_WINDOW.ENABLE and self.training_sliding_window:
             # these lines of code allow to get the same example at differnt timestamps
             # total_windows = int(self.dataset_cfg.SLIDING_WINDOW.TOTAL_WINDOWS / self.dataset_cfg.SLIDING_WINDOW.SLIDING_WINDOW_STEP)
             return len(self.infos) * (self.total_windows)
@@ -77,7 +77,7 @@ class WaymoDataset(DatasetTemplate):
             return len(self.infos)
 
     def __getitem__(self, index):
-        if self.dataset_cfg.SLIDING_WINDOW.ENABLE and self.training:
+        if self.dataset_cfg.SLIDING_WINDOW.ENABLE and self.training_sliding_window:
 
             # sliding window mode
             # base_example_index  =int( index // self.dataset_cfg.SLIDING_WINDOW.TOTAL_WINDOWS)

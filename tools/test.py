@@ -212,7 +212,7 @@ def main():
     ckpt_dir = args.ckpt_dir if args.ckpt_dir is not None else output_dir / 'ckpt'
 
     # leving at least one timestamp to evaluate
-    for timestamp in range(10,11):  #start 10, max 90
+    for timestamp in range(10,90):  #start 10, max 90
         cfg.DATA_CONFIG.CURRENT_TIMESTAMP = timestamp
         test_set, test_loader, sampler = build_dataloader(
             dataset_cfg=cfg.DATA_CONFIG,

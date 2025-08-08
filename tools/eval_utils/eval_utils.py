@@ -126,9 +126,9 @@ def eval_one_epoch_with_sliding_window(cfg, model, dataloader, epoch_id, current
     ego_vehicles=1
     for i, batch_dict in enumerate(dataloader):
 
-        if len(batch_dict['input_dict']['track_index_to_predict']) != ego_vehicles:
-            continue
-        count+=1
+        # if len(batch_dict['input_dict']['track_index_to_predict']) != ego_vehicles:
+        #     continue
+        # count+=1
 
         # else:
         #     count += 1
@@ -218,30 +218,30 @@ def eval_one_epoch_with_sliding_window(cfg, model, dataloader, epoch_id, current
 
     data ={}
     stats ={}
-    # mAP, minADE, minFDE, missRate, confidence, stats = dataset.evaluation_sliding_window(
-    #     pred_dicts,
-    #     output_path=final_output_dir, 
-    #     eval_sec=3, current_time_stamp=current_time_stamp
-    # )
-    # logger.info('****************Evaluation for T=3.*****************')
-    # data = {
-    # 'minADE': minADE,
-    # 'minFDE': minFDE,
-    # 'mAP': mAP,
-    # 'missRate': missRate, 
-    # 'confidence': confidence
-    # }
+    mAP, minADE, minFDE, missRate, confidence, stats = dataset.evaluation_sliding_window(
+        pred_dicts,
+        output_path=final_output_dir, 
+        eval_sec=3, current_time_stamp=current_time_stamp
+    )
+    logger.info('****************Evaluation for T=3.*****************')
+    data = {
+    'minADE': minADE,
+    'minFDE': minFDE,
+    'mAP': mAP,
+    'missRate': missRate, 
+    'confidence': confidence
+    }
 
     combined_dict = {
     "waymo_eval": data,
     "custom_eval": stats, 
     "infernece_time": inference_time_dict
 }
-    # with open(result_dir / f'sliding_window_results_mode_6_timestamp_variable_{current_time_stamp}.json', 'w') as f:
-    #     json.dump(combined_dict, f, indent=2)
-
-    with open(result_dir / f'sliding_window_results_eg_vehicle_{ego_vehicles}.json', 'w') as f:
+    with open(result_dir / f'sliding_window_results_mode_6_timestamp_variable_{current_time_stamp}.json', 'w') as f:
         json.dump(combined_dict, f, indent=2)
+
+    # with open(result_dir / f'sliding_window_results_eg_vehicle_{ego_vehicles}.json', 'w') as f:
+    #     json.dump(combined_dict, f, indent=2)
     # result_str, result_dict = dataset.evaluation(
     #     pred_dicts,
     #     output_path=final_output_dir, 
